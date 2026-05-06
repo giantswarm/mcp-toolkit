@@ -90,6 +90,8 @@ func TestRedactURL(t *testing.T) {
 		{"url with hostname preserved", "https://api.example.com:6443/api", "https://api.example.com:6443/api"},
 		{"url with userinfo stripped", "https://alice:secret@api.example.com/x", "https://api.example.com/x"},
 		{"url with userinfo and ipv4", "https://alice:s@10.0.0.1:6443/x", "https://<redacted-ip>:6443/x"},
+		{"bare host with userinfo", "alice:secret@redis.example.com:6379", "redis.example.com:6379"},
+		{"bare host with userinfo and ipv4", "alice:secret@10.0.0.1:6379", "<redacted-ip>:6379"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

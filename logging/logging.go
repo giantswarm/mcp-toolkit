@@ -86,6 +86,15 @@ func RedactURL(s string) string {
 		return ""
 	}
 	if !strings.Contains(s, "://") {
+		// Bare host. If it carries userinfo (e.g. a Redis/Valkey
+		// address written as user:pass@host:port), parse under a
+		// synthetic scheme to strip it, then redact any IP.
+		if strings.Contains(s, "@") {
+			if u, err := url.Parse("scheme://" + s); err == nil {
+				u.User = nil
+				return redactIPs(u.Host + u.Path)
+			}
+		}
 		return redactIPs(s)
 	}
 	u, err := url.Parse(s)
