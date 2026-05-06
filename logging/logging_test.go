@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,7 +50,7 @@ func TestNew_LevelFiltering(t *testing.T) {
 func TestNew_AutoPicksJSONInsideKubernetes(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{Output: &buf}) // Format zero == FormatAuto
+	l := logging.New(logging.Options{Output: &buf})
 	l.Info("hello")
 	require.True(t, json.Valid(buf.Bytes()), "expected JSON output: %s", buf.String())
 }
@@ -72,29 +71,6 @@ func TestNew_ZeroOptionsDoesNotPanic(t *testing.T) {
 	// returns a usable logger.
 	l := logging.New(logging.Options{})
 	require.NotNil(t, l)
-}
-
-func TestHash(t *testing.T) {
-	require.Equal(t, "", logging.Hash(""), "empty input must return empty")
-
-	a := logging.Hash("alice@example.com")
-	b := logging.Hash("alice@example.com")
-	require.Equal(t, a, b, "same input must hash to same output")
-
-	require.True(t, strings.HasPrefix(a, "redacted:"))
-	require.Len(t, strings.TrimPrefix(a, "redacted:"), 16)
-
-	require.NotEqual(t, a, logging.Hash("bob@example.com"))
-}
-
-func TestMaskToken(t *testing.T) {
-	require.Equal(t, "", logging.MaskToken(""))
-	require.Equal(t, "[token:5 chars]", logging.MaskToken("abcde"))
-	// No token bytes appear in the output.
-	out := logging.MaskToken("eyJhbGciOiJIUzI1NiJ9.payload.sig")
-	require.NotContains(t, out, "eyJ")
-	require.NotContains(t, out, "payload")
-	require.NotContains(t, out, "sig")
 }
 
 func TestRedactURL(t *testing.T) {
@@ -130,44 +106,4 @@ func TestRedactURL_InvalidURLFallsBackToIPRedaction(t *testing.T) {
 	got := logging.RedactURL(in)
 	require.Contains(t, got, "<redacted-ip>")
 	require.NotContains(t, got, "192.168.1.5")
-}
-
-func TestEmail_LogValueRedactsViaSlog(t *testing.T) {
-	var buf bytes.Buffer
-	l := logging.New(logging.Options{Format: logging.FormatJSON, Output: &buf})
-	l.Info("op", "email", logging.Email("alice@example.com"))
-
-	var rec map[string]any
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
-	require.NotEqual(t, "alice@example.com", rec["email"])
-	require.True(t, strings.HasPrefix(rec["email"].(string), "redacted:"),
-		"email value should be redacted, got %v", rec["email"])
-}
-
-func TestToken_LogValueRedactsViaSlog(t *testing.T) {
-	var buf bytes.Buffer
-	l := logging.New(logging.Options{Format: logging.FormatJSON, Output: &buf})
-	l.Info("op", "token", logging.Token("eyJhbGciOiJIUzI1NiJ9.payload.signature"))
-
-	var rec map[string]any
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
-	tokenStr := rec["token"].(string)
-	require.NotContains(t, tokenStr, "eyJ")
-	require.NotContains(t, tokenStr, "payload")
-	require.Regexp(t, `^\[token:\d+ chars\]$`, tokenStr)
-}
-
-func TestURL_LogValueRedactsViaSlog(t *testing.T) {
-	var buf bytes.Buffer
-	l := logging.New(logging.Options{Format: logging.FormatJSON, Output: &buf})
-	l.Info("op", "url", logging.URL("https://alice:secret@10.0.0.1:6443/api"))
-
-	var rec map[string]any
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
-	urlStr := rec["url"].(string)
-	require.NotContains(t, urlStr, "alice")
-	require.NotContains(t, urlStr, "secret")
-	require.NotContains(t, urlStr, "10.0.0.1")
-	require.Contains(t, urlStr, "<redacted-ip>")
-	require.Contains(t, urlStr, "6443")
 }

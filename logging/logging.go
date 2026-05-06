@@ -1,9 +1,6 @@
 package logging
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
@@ -64,33 +61,6 @@ func New(opts Options) *slog.Logger {
 	return slog.New(h)
 }
 
-// Hash returns a stable, anonymized representation of s of the form
-// "redacted:" + first 16 hex chars of SHA-256(s). Suitable for
-// correlating log entries (e.g. all requests from the same user)
-// without exposing the underlying value.
-//
-// Hash("") returns "".
-func Hash(s string) string {
-	if s == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(s))
-	return "redacted:" + hex.EncodeToString(sum[:8])
-}
-
-// MaskToken returns "[token:N chars]" without exposing any token
-// bytes. Even prefixes can aid attacks on JWT-like formats, so the
-// content is never logged — only the length, as a coarse sanity
-// check.
-//
-// MaskToken("") returns "".
-func MaskToken(s string) string {
-	if s == "" {
-		return ""
-	}
-	return fmt.Sprintf("[token:%d chars]", len(s))
-}
-
 const redactedIP = "<redacted-ip>"
 
 var (
@@ -140,36 +110,3 @@ func redactIPs(s string) string {
 	s = ipv4Regex.ReplaceAllString(s, redactedIP)
 	return ipv6Regex.ReplaceAllString(s, redactedIP)
 }
-
-// Email is a string type that redacts itself when logged via slog.
-// Its LogValue returns Hash(string(e)).
-//
-// Use it when you control the type of the value being logged:
-//
-//	type Caller struct { Email logging.Email }
-//	logger.Info("op", "email", caller.Email) // emits hash, not address
-//
-// Note: slog reflects into struct values, which bypasses LogValue on
-// inner fields. Log Email as its own attribute, not as a field of a
-// larger struct (see package doc).
-type Email string
-
-// LogValue implements slog.LogValuer.
-func (e Email) LogValue() slog.Value { return slog.StringValue(Hash(string(e))) }
-
-// Token is a string type that redacts itself when logged via slog.
-// Its LogValue returns MaskToken(string(t)).
-type Token string
-
-// LogValue implements slog.LogValuer.
-func (t Token) LogValue() slog.Value { return slog.StringValue(MaskToken(string(t))) }
-
-// URL is a string type that redacts itself when logged via slog.
-// Its LogValue returns RedactURL(string(u)).
-//
-// Note that this is a logging-side representation. For URL parsing
-// or HTTP, continue to use net/url.URL.
-type URL string
-
-// LogValue implements slog.LogValuer.
-func (u URL) LogValue() slog.Value { return slog.StringValue(RedactURL(string(u))) }
