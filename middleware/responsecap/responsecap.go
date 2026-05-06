@@ -17,9 +17,14 @@ const DefaultLimit = 128 * 1024
 const ErrCode = "response_too_large"
 
 // Options configures New.
+//
+// Exempt, AllowOverride, and Hint must be safe for concurrent use:
+// mcp-go invokes tool handlers concurrently and the middleware does
+// not serialize calls to these callbacks.
 type Options struct {
-	// Limit is the maximum byte size allowed for any TextContent in the
-	// tool result.
+	// Limit is the maximum byte size (UTF-8 bytes, not runes) allowed
+	// for any TextContent in the tool result. Multi-byte text reaches
+	// the limit faster than its rendered character count would suggest.
 	//
 	// Zero (the zero value) applies DefaultLimit, so Options{} is safe by
 	// default. Negative values disable capping entirely — an escape hatch
@@ -44,7 +49,16 @@ type Options struct {
 	Hint func(toolName string) string
 }
 
-// Error is the JSON shape written into TextContent when a result is capped.
+// Error is the JSON shape written into TextContent when a result is
+// capped. Example payload:
+//
+//	{
+//	  "error":   "response_too_large",
+//	  "bytes":   500000,
+//	  "limit":   131072,
+//	  "message": "response is 500000 bytes, exceeds 131072 byte limit",
+//	  "hint":    "narrow the query: tighten filters, …"
+//	}
 type Error struct {
 	Error   string `json:"error"`
 	Bytes   int    `json:"bytes"`
@@ -83,6 +97,8 @@ func New(opts Options) server.ToolHandlerMiddleware {
 				if !ok || len(t.Text) <= limit {
 					continue
 				}
+				// json.Marshal cannot fail here: every Error field is a
+				// fixed primitive with no recursive or unsupported value.
 				payload, _ := json.Marshal(Error{
 					Error:   ErrCode,
 					Bytes:   len(t.Text),

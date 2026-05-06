@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
 )
 
 func textHandler(text string) server.ToolHandlerFunc {
@@ -202,4 +203,15 @@ func TestAllowOverrideReceivesRequest(t *testing.T) {
 	_, err := mw(textHandler(body))(context.Background(), req("tool-x"))
 	require.NoError(t, err)
 	require.Equal(t, "tool-x", seen)
+}
+
+func TestNilContentPassThrough(t *testing.T) {
+	handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: nil}, nil
+	}
+	mw := responsecap.New(responsecap.Options{Limit: 100})
+	res, err := mw(handler)(context.Background(), req("any"))
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	require.Nil(t, res.Content)
 }
