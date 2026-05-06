@@ -5,7 +5,7 @@
 // running inside a Kubernetes pod (auto-detected via
 // KUBERNETES_SERVICE_HOST).
 //
-// RedactURL scrubs IP addresses and URL userinfo before they land in
+// RedactAddress scrubs IP addresses and URL userinfo before they land in
 // logs. It is the only redaction primitive in this package because
 // URL parsing plus IPv6 surgery is genuinely non-trivial; format-only
 // redactions (e.g. hashing emails, masking tokens) are short enough

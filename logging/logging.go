@@ -70,18 +70,18 @@ var (
 	ipv6Regex = regexp.MustCompile(`\[?([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\]?`)
 )
 
-// RedactURL returns s with IPv4/IPv6 addresses replaced by a
+// RedactAddress returns s with IPv4/IPv6 addresses replaced by a
 // redaction marker and userinfo stripped from URLs. Plain hostnames,
 // ports, and paths are preserved.
 //
 // Accepts either a full URL ("https://192.168.1.10:6443/path") or a
-// bare host ("192.168.1.10:6443", "api.example.com"). RedactURL("")
+// bare host ("192.168.1.10:6443", "api.example.com"). RedactAddress("")
 // returns "".
 //
 // Use this when logging an error from an upstream API client whose
 // message may include the API server address — e.g. a Kubernetes API
 // error that interpolates the API server URL.
-func RedactURL(s string) string {
+func RedactAddress(s string) string {
 	if s == "" {
 		return ""
 	}
