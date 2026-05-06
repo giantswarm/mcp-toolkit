@@ -73,7 +73,7 @@ func TestNew_ZeroOptionsDoesNotPanic(t *testing.T) {
 	require.NotNil(t, l)
 }
 
-func TestRedactAddress(t *testing.T) {
+func TestRedactHost(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
@@ -95,17 +95,17 @@ func TestRedactAddress(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, logging.RedactAddress(tc.in))
+			require.Equal(t, tc.want, logging.RedactHost(tc.in))
 		})
 	}
 }
 
-func TestRedactAddress_InvalidURLFallsBackToIPRedaction(t *testing.T) {
+func TestRedactHost_InvalidURLFallsBackToIPRedaction(t *testing.T) {
 	// A string that contains "://" but does not parse cleanly as a
 	// URL. We don't care about preserving structure; we only care
 	// that any IP it contains is still redacted.
 	in := "garbage://[::not an ip:: 192.168.1.5"
-	got := logging.RedactAddress(in)
+	got := logging.RedactHost(in)
 	require.Contains(t, got, "<redacted-ip>")
 	require.NotContains(t, got, "192.168.1.5")
 }
