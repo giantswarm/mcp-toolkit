@@ -20,6 +20,13 @@ Successful patterns from this module are upstream candidates for `mark3labs/mcp-
 | Path | Purpose |
 |---|---|
 | [`middleware/responsecap`](./middleware/responsecap) | Reject oversized tool responses with a typed `response_too_large` error and `IsError = true`, instead of letting the LLM consume truncated-but-syntactically-valid output. |
+| [`middleware/timeout`](./middleware/timeout) | Per-tool-call `context.WithTimeout` middleware. On deadline, returns an `IsError` `CallToolResult` containing `tool X exceeded timeout of Ys` rather than a silent hang or generic context error. Parent-context cancellation propagates unchanged. |
+| [`health`](./health) | Stdlib-only `/healthz` (unconditional 200) and `/readyz` (atomic `SetReady` flag) HTTP handlers. Liveness can't flap; readiness is pod-local so downstream hiccups don't yank every replica's endpoint at once. |
+| [`httpx`](./httpx) | Graceful-shutdown wrapper around `net/http`: `Run` starts `ListenAndServe` and blocks until ctx cancel (then calls `Shutdown` with a configured timeout) or the server returns an error. |
+| [`logging`](./logging) | `slog.Logger` factory that auto-picks text vs JSON based on `KUBERNETES_SERVICE_HOST`, plus a `RedactHost` helper that scrubs IPs and URL userinfo from log strings. |
+| [`tracing`](./tracing) | OpenTelemetry tracer-provider init driven by standard `OTEL_*` env vars. Always installs W3C TraceContext + Baggage propagators (so inbound `traceparent` headers chain) and returns a no-op shutdown when no exporter is configured. |
+
+Conventions consumer MCP servers should follow are documented in [`docs/conventions.md`](./docs/conventions.md) — currently the paginated tool-result shape (`{ items, nextCursor }`).
 
 More to follow as they get extracted from real consumers.
 
