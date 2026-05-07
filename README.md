@@ -1,29 +1,46 @@
-# General Go template repository
+# mcp-toolkit
 
-This is a general template repository containing some basic files every GitHub repo owned by Giant Swarm should have.
+Reusable Go middleware for [mcp-go](https://github.com/mark3labs/mcp-go) servers, extracted from Giant Swarm's MCP server fleet.
 
-Note also these more specific repositories:
+[![Go reference](https://pkg.go.dev/badge/github.com/giantswarm/mcp-toolkit.svg)](https://pkg.go.dev/github.com/giantswarm/mcp-toolkit)
+[![Go report card](https://goreportcard.com/badge/github.com/giantswarm/mcp-toolkit)](https://goreportcard.com/report/github.com/giantswarm/mcp-toolkit)
 
-- [template-app](https://github.com/giantswarm/template-app)
-- [gitops-template](https://github.com/giantswarm/gitops-template)
-- [python-app-template](https://github.com/giantswarm/python-app-template)
+## Status
 
-## Creating a new repository
+Early. APIs may shift until the first set of middleware has been adopted by two or more consumers in production.
 
-Please do not use the `Use this template` function in the GitHub web UI.
+## Scope
 
-Check out the according [handbook article](https://handbook.giantswarm.io/docs/dev-and-releng/repository/go/) for better instructions.
+A home for `server.ToolHandlerMiddleware` implementations and small helpers we found ourselves rewriting across MCP servers (`mcp-prometheus`, `mcp-observability-platform`, `mcp-kubernetes`, …). Anything generic enough to live next to mcp-go's own `output_validation.go` is fair game; anything specific to one MCP stays in that MCP.
 
-### Some suggestions for your README
+Successful patterns from this module are upstream candidates for `mark3labs/mcp-go` once they have settled.
 
-After you have created your new repository, you may want to add some of these badges to the top of your README.
+## Modules
 
-- **CircleCI:** After enabling builds for this repo via [this link](https://circleci.com/setup-project/gh/giantswarm/REPOSITORY_NAME), you can find badge code on [this page](https://app.circleci.com/settings/project/github/giantswarm/REPOSITORY_NAME/status-badges).
+| Path | Purpose |
+|---|---|
+| [`middleware/responsecap`](./middleware/responsecap) | Reject oversized tool responses with a typed `response_too_large` error and `IsError = true`, instead of letting the LLM consume truncated-but-syntactically-valid output. |
 
-- **Go reference:** use [this helper](https://pkg.go.dev/badge/) to create the markdown code.
+More to follow as they get extracted from real consumers.
 
-- **Go report card:** enter the module name on the [front page](https://goreportcard.com/) and hit "Generate report". Then use this markdown code for your badge: `[![Go report card](https://goreportcard.com/badge/github.com/giantswarm/REPOSITORY_NAME)](https://goreportcard.com/report/github.com/giantswarm/REPOSITORY_NAME)`
+## Usage
 
-- **OpenSSF Scorecard Report:** for public repos only: `[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/giantswarm/{APP-NAME}/badge)](https://securityscorecards.dev/viewer/?uri=github.com/giantswarm/{APP-NAME})`
+Each module has its own package documentation. The general shape:
 
-- **Sourcegraph "used by N projects" badge**: for public Go repos only: `[![Sourcegraph](https://sourcegraph.com/github.com/giantswarm/REPOSITORY_NAME/-/badge.svg)](https://sourcegraph.com/github.com/giantswarm/REPOSITORY_NAME)`
+```go
+import (
+    mcpserver "github.com/mark3labs/mcp-go/server"
+    "github.com/giantswarm/mcp-toolkit/middleware/responsecap"
+)
+
+s := mcpserver.NewMCPServer("my-mcp", "1.0.0")
+s.Use(responsecap.New(responsecap.Options{Limit: 128 << 10}))
+```
+
+## Contributing
+
+Before adding a module, it should be in use by at least one Giant Swarm MCP server. Speculative middleware does not belong here — extract from the real call site, not the other way around.
+
+## License
+
+Apache 2.0. See [LICENSE](LICENSE).
