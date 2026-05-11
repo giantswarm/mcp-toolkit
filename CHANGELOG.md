@@ -21,13 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking (no released consumers — only `feat/logging-init` consumers, which we control):** all three OTel signal `Init` helpers move to a functional-options API for consistency:
+- **Breaking:** all three OTel signal `Init` helpers move to a functional-options API for consistency:
   - `tracing.Init(ctx, ...tracing.Option)` (was `Init(ctx, name, version string)`)
   - `metrics.Init(ctx, ...metrics.Option)` (new in this PR)
   - `logging.Init(ctx, ...logging.Option)` (new in this PR)
   - `logging.New(...logging.Option) *slog.Logger` (was `New(Options)`)
 
-  Each package exposes a `Option` type and a small set of `WithX` constructors. Defaults are preserved — the common service-composition-root call stays one-line. The `Options` and `InitOptions` structs are removed; the `Format` enum and `FormatAuto` / `FormatText` / `FormatJSON` constants stay. Acceptable under the README's "APIs may shift until first set of middleware has been adopted in production" clause.
+  Each package exposes an `Option` type and a small set of `WithX` constructors. Defaults are preserved — the common service-composition-root call stays one-line. The `Options` and `InitOptions` structs are removed; the `Format` enum and `FormatAuto` / `FormatText` / `FormatJSON` constants stay.
 
 ### Fixed
 
