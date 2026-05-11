@@ -109,4 +109,3 @@ func Init(ctx context.Context, opts ...Option) (Shutdown, error) {
 	otel.SetTracerProvider(tp)
 	return tp.Shutdown, nil
 }
-

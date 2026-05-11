@@ -13,8 +13,8 @@ import (
 //   - OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT (signal-specific OTLP endpoint)
 //   - OTEL_EXPORTER_OTLP_ENDPOINT          (shared OTLP endpoint)
 //   - OTEL_<SIGNAL>_EXPORTER               (explicit exporter selection;
-//                                           e.g. "console", "none",
-//                                           "prometheus" for metrics)
+//     e.g. "console", "none",
+//     "prometheus" for metrics)
 //
 // Any non-empty value triggers Configured to return true; the toolkit
 // uses this to decide whether to spin up an SDK pipeline or return a

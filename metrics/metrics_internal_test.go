@@ -16,6 +16,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+// testHistogramName is the metric name every test in this file
+// records against. Package-local const so the lookup branches in
+// Collect-result walks compare against a single source of truth.
+const testHistogramName = "test.duration"
+
 // restoreGlobals snapshots the global TracerProvider and MeterProvider
 // and restores them on cleanup. initWithReader installs a real
 // MeterProvider as the global — without this, the first test that
@@ -59,7 +64,7 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 	ctx, span := tracer.Start(context.Background(), "test-span")
 
 	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
-		Float64Histogram("test.duration")
+		Float64Histogram(testHistogramName)
 	require.NoError(t, err)
 	hist.Record(ctx, 0.123)
 	span.End()
@@ -72,7 +77,7 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 	var sawExemplar bool
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "test.duration" {
+			if m.Name != testHistogramName {
 				continue
 			}
 			h, ok := m.Data.(metricdata.Histogram[float64])
@@ -97,7 +102,7 @@ func TestInitWithReader_WithViews_AppliesCustomHistogramBuckets(t *testing.T) {
 
 	customBounds := []float64{0.0001, 0.0005, 0.001}
 	view := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "test.duration"},
+		sdkmetric.Instrument{Name: testHistogramName},
 		sdkmetric.Stream{
 			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: customBounds,
@@ -113,7 +118,7 @@ func TestInitWithReader_WithViews_AppliesCustomHistogramBuckets(t *testing.T) {
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
-		Float64Histogram("test.duration")
+		Float64Histogram(testHistogramName)
 	require.NoError(t, err)
 	hist.Record(context.Background(), 0.0007)
 
@@ -123,7 +128,7 @@ func TestInitWithReader_WithViews_AppliesCustomHistogramBuckets(t *testing.T) {
 	var bounds []float64
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "test.duration" {
+			if m.Name != testHistogramName {
 				continue
 			}
 			h, ok := m.Data.(metricdata.Histogram[float64])
@@ -153,7 +158,7 @@ func TestInitWithReader_WithResourceOptions_AttachesCallerAttrs(t *testing.T) {
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
-		Float64Histogram("test.duration")
+		Float64Histogram(testHistogramName)
 	require.NoError(t, err)
 	hist.Record(context.Background(), 0.5)
 
@@ -195,7 +200,7 @@ func TestInitWithReader_ExemplarFilter_AlwaysOff(t *testing.T) {
 	ctx, span := tracer.Start(context.Background(), "test-span")
 
 	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
-		Float64Histogram("test.duration")
+		Float64Histogram(testHistogramName)
 	require.NoError(t, err)
 	hist.Record(ctx, 0.123)
 	span.End()
@@ -205,7 +210,7 @@ func TestInitWithReader_ExemplarFilter_AlwaysOff(t *testing.T) {
 
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "test.duration" {
+			if m.Name != testHistogramName {
 				continue
 			}
 			h, ok := m.Data.(metricdata.Histogram[float64])

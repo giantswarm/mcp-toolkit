@@ -157,4 +157,3 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, c config) (Shu
 	otel.SetMeterProvider(mp)
 	return mp.Shutdown, nil
 }
-
