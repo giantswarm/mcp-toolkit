@@ -57,6 +57,17 @@ type InitOptions struct {
 	// over io.Writers that the caller owns (os.Stderr, an open *os.File)
 	// rather than ones that need closing.
 	ExtraHandlers []slog.Handler
+	// ResourceOptions are appended to the toolkit's resource.New
+	// option list. Use to add extra attributes (deployment.environment,
+	// custom labels) or extra detectors (k8s, AWS, GCP). The toolkit's
+	// own options — semconv ServiceName/Version, Process, OS,
+	// Container, FromEnv — are applied first. Only used in OTLP mode.
+	ResourceOptions []resource.Option
+	// BatchProcessorOptions are appended to the BatchProcessor used in
+	// OTLP mode. Use to tune queue size, export interval, or export
+	// timeout for high-throughput services. Empty keeps the SDK
+	// defaults.
+	BatchProcessorOptions []sdklog.BatchProcessorOption
 }
 
 // Init returns the slog.Handler to use and a Shutdown that drains the
@@ -141,6 +152,24 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions
 		_ = exp.Shutdown(ctx)
 	}()
 
+	res, err := buildResource(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(exp, opts.BatchProcessorOptions...)),
+		sdklog.WithResource(res),
+	)
+	exporterOwned = true
+	global.SetLoggerProvider(lp)
+	primary := otelslog.NewHandler(opts.LoggerName, otelslog.WithLoggerProvider(lp))
+	return compose(primary, opts.ExtraHandlers), lp.Shutdown, nil
+}
+
+// buildResource composes the SDK Resource for the LoggerProvider.
+// Toolkit defaults run first; caller-supplied ResourceOptions follow.
+func buildResource(ctx context.Context, opts InitOptions) (*resource.Resource, error) {
 	var attrs []attribute.KeyValue
 	if opts.ServiceName != "" {
 		attrs = append(attrs, semconv.ServiceName(opts.ServiceName))
@@ -148,25 +177,19 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions
 	if opts.ServiceVersion != "" {
 		attrs = append(attrs, semconv.ServiceVersion(opts.ServiceVersion))
 	}
-	res, err := resource.New(ctx,
+	resourceOpts := []resource.Option{
 		resource.WithAttributes(attrs...),
 		resource.WithProcess(),
 		resource.WithOS(),
 		resource.WithContainer(),
 		resource.WithFromEnv(),
-	)
-	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
-		return nil, nil, fmt.Errorf("otel resource: %w", err)
 	}
-
-	lp := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)),
-		sdklog.WithResource(res),
-	)
-	exporterOwned = true
-	global.SetLoggerProvider(lp)
-	primary := otelslog.NewHandler(opts.LoggerName, otelslog.WithLoggerProvider(lp))
-	return compose(primary, opts.ExtraHandlers), lp.Shutdown, nil
+	resourceOpts = append(resourceOpts, opts.ResourceOptions...)
+	res, err := resource.New(ctx, resourceOpts...)
+	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
+		return nil, fmt.Errorf("otel resource: %w", err)
+	}
+	return res, nil
 }
 
 // baseHandler builds the text/JSON slog handler. Single source of

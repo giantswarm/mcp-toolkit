@@ -33,6 +33,26 @@ type InitOptions struct {
 	// OTEL_SERVICE_VERSION env var; pass the build version here or in
 	// OTEL_RESOURCE_ATTRIBUTES.
 	ServiceVersion string
+	// Views customise per-instrument behaviour: rename, drop, change
+	// the aggregation, override histogram bucket boundaries, etc.
+	// Each view is appended to the MeterProvider in order.
+	//
+	// Common case — tune the duration histogram buckets for a tool
+	// that runs sub-millisecond:
+	//
+	//	sdkmetric.NewView(
+	//	    sdkmetric.Instrument{Name: "your.tool.duration"},
+	//	    sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+	//	        Boundaries: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
+	//	    }},
+	//	)
+	Views []sdkmetric.View
+	// ResourceOptions are appended to the toolkit's resource.New
+	// option list. Use to add extra attributes (deployment.environment,
+	// custom labels) or extra detectors (k8s, AWS, GCP). The toolkit's
+	// own options — semconv ServiceName/Version, Process, OS,
+	// Container, FromEnv — are applied first.
+	ResourceOptions []resource.Option
 	// ExemplarFilter overrides the default exemplar.TraceBasedFilter
 	// applied to the MeterProvider. Common overrides:
 	//
@@ -106,22 +126,9 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 		_ = reader.Shutdown(ctx)
 	}()
 
-	var attrs []attribute.KeyValue
-	if opts.ServiceName != "" {
-		attrs = append(attrs, semconv.ServiceName(opts.ServiceName))
-	}
-	if opts.ServiceVersion != "" {
-		attrs = append(attrs, semconv.ServiceVersion(opts.ServiceVersion))
-	}
-	res, err := resource.New(ctx,
-		resource.WithAttributes(attrs...),
-		resource.WithProcess(),
-		resource.WithOS(),
-		resource.WithContainer(),
-		resource.WithFromEnv(),
-	)
-	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
-		return nil, fmt.Errorf("otel resource: %w", err)
+	res, err := buildResource(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	// Explicit pin: TraceBasedFilter is the SDK default at v1.43.0,
@@ -132,14 +139,43 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 	if exemplarFilter == nil {
 		exemplarFilter = exemplar.TraceBasedFilter
 	}
-	mp := sdkmetric.NewMeterProvider(
+	mpOpts := []sdkmetric.Option{
 		sdkmetric.WithReader(reader),
 		sdkmetric.WithResource(res),
 		sdkmetric.WithExemplarFilter(exemplarFilter),
-	)
+	}
+	for _, v := range opts.Views {
+		mpOpts = append(mpOpts, sdkmetric.WithView(v))
+	}
+	mp := sdkmetric.NewMeterProvider(mpOpts...)
 	readerOwned = true
 	otel.SetMeterProvider(mp)
 	return mp.Shutdown, nil
+}
+
+// buildResource composes the SDK Resource for the MeterProvider.
+// Toolkit defaults run first; caller-supplied ResourceOptions follow.
+func buildResource(ctx context.Context, opts InitOptions) (*resource.Resource, error) {
+	var attrs []attribute.KeyValue
+	if opts.ServiceName != "" {
+		attrs = append(attrs, semconv.ServiceName(opts.ServiceName))
+	}
+	if opts.ServiceVersion != "" {
+		attrs = append(attrs, semconv.ServiceVersion(opts.ServiceVersion))
+	}
+	resourceOpts := []resource.Option{
+		resource.WithAttributes(attrs...),
+		resource.WithProcess(),
+		resource.WithOS(),
+		resource.WithContainer(),
+		resource.WithFromEnv(),
+	}
+	resourceOpts = append(resourceOpts, opts.ResourceOptions...)
+	res, err := resource.New(ctx, resourceOpts...)
+	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
+		return nil, fmt.Errorf("otel resource: %w", err)
+	}
+	return res, nil
 }
 
 // metricsConfigured returns true when any of the standard OTEL metric

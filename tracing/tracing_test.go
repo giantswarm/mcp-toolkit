@@ -43,7 +43,7 @@ func resetGlobals(t *testing.T) {
 func TestInit_NoConfig_NoOpButPropagates(t *testing.T) {
 	resetGlobals(t)
 
-	shutdown, err := tracing.Init(context.Background(), "svc", "0.0.1")
+	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{ServiceName: "svc", ServiceVersion: "0.0.1"})
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	require.NoError(t, shutdown(context.Background()), "first shutdown")
@@ -72,7 +72,7 @@ func TestInit_ExporterConfigured_InstallsSDKProvider(t *testing.T) {
 	resetGlobals(t)
 	t.Setenv("OTEL_TRACES_EXPORTER", "none")
 
-	shutdown, err := tracing.Init(context.Background(), "svc", "0.0.1")
+	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{ServiceName: "svc", ServiceVersion: "0.0.1"})
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })

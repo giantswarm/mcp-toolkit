@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Format selects the slog handler used by New.
+// Format selects the slog handler shape.
 type Format int
 
 const (
