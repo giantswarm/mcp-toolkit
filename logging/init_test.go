@@ -12,7 +12,7 @@ import (
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
 
-func TestInit_NoEnv_FallsBackToTextOrJSON(t *testing.T) {
+func TestInit_NoEnv_TextOutput(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_LOGS_EXPORTER", "")

@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -21,12 +22,18 @@ import (
 // and from multiple goroutines.
 type Shutdown func(ctx context.Context) error
 
-// InitOptions extends Options with the service identity attached to
-// log records in OTLP mode. The non-OTLP path ignores ServiceName and
+// InitOptions extends Options with identifiers attached to log records
+// in OTLP mode. The non-OTLP path ignores LoggerName, ServiceName, and
 // ServiceVersion — slog records carry the same identity through stream
 // metadata (pod, container, namespace) added by the log collector.
 type InitOptions struct {
 	Options
+	// LoggerName identifies the instrumentation scope on emitted OTel
+	// LogRecords (OTel SDK's InstrumentationScope.Name). Conventionally
+	// the importing module path, e.g. "github.com/giantswarm/muster".
+	// Empty falls back to the LoggerProvider's default scope name,
+	// which is rarely useful as a Loki filter.
+	LoggerName string
 	// ServiceName is written as semconv.ServiceName on the
 	// LoggerProvider's Resource when OTLP mode is selected. Empty
 	// string lets OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES override.
@@ -44,18 +51,27 @@ type InitOptions struct {
 // OTEL_EXPORTER_OTLP_ENDPOINT, or OTEL_LOGS_EXPORTER is set), the
 // returned handler is an otelslog.Handler wired to an OTel
 // LoggerProvider with a BatchProcessor and an autoexport-selected
-// exporter. Records carry the active span's TraceID and SpanID
-// automatically (the OTel SDK pulls SpanContext from the call's
-// context.Context).
+// exporter. The provider is also registered as the global OTel
+// LoggerProvider so any code that emits OTel logs directly (e.g. via
+// otel/log/global.Logger) routes through it. Records carry the active
+// span's TraceID and SpanID automatically (the OTel SDK pulls
+// SpanContext from the call's context.Context).
 //
 // Otherwise the handler follows the same auto-detection as New: JSON
-// inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text
-// otherwise. Output and Level are honoured in both paths; only OTLP
-// mode uses ServiceName / ServiceVersion.
+// inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text otherwise.
 //
-// The OTLP path requires neither traces nor metrics to be configured
-// — the three signals are independent.
-func Init(ctx context.Context, opts InitOptions) (slog.Handler, Shutdown, error) {
+// Field applicability:
+//
+//   - Output applies only to the non-OTLP path. OTLP routes records to
+//     the LoggerProvider, not to a writer.
+//   - Level applies only to the non-OTLP path. otelslog.Handler.Enabled
+//     defers to the OTel LoggerProvider, not to slog's Level filter;
+//     configure OTLP-side filtering via the OTel SDK.
+//   - LoggerName, ServiceName, ServiceVersion apply only to OTLP mode.
+//
+// The OTLP path requires neither traces nor metrics to be configured —
+// the three signals are independent.
+func Init(ctx context.Context, opts InitOptions) (handler slog.Handler, shutdown Shutdown, err error) {
 	if !otlpLogsConfigured() {
 		return baseHandler(opts.Options), noopShutdown, nil
 	}
@@ -64,6 +80,24 @@ func Init(ctx context.Context, opts InitOptions) (slog.Handler, Shutdown, error)
 	if err != nil {
 		return nil, nil, fmt.Errorf("otlp log exporter: %w", err)
 	}
+	return initWithExporter(ctx, exp, opts)
+}
+
+// initWithExporter constructs the OTLP-mode handler against an explicit
+// Exporter. Split from Init so tests can inject a record-capturing
+// stub; production callers go through Init, which selects the exporter
+// via autoexport.
+func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions) (slog.Handler, Shutdown, error) {
+	// Hand exp ownership to the LoggerProvider on success; on any
+	// error before that handover we must shut it down ourselves or
+	// leak its underlying transport (gRPC client, batch goroutine).
+	exporterOwned := false
+	defer func() {
+		if exporterOwned {
+			return
+		}
+		_ = exp.Shutdown(ctx)
+	}()
 
 	var attrs []attribute.KeyValue
 	if opts.ServiceName != "" {
@@ -87,14 +121,16 @@ func Init(ctx context.Context, opts InitOptions) (slog.Handler, Shutdown, error)
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)),
 		sdklog.WithResource(res),
 	)
-	return otelslog.NewHandler(opts.ServiceName,
+	exporterOwned = true
+	global.SetLoggerProvider(lp)
+	return otelslog.NewHandler(opts.LoggerName,
 		otelslog.WithLoggerProvider(lp),
 	), lp.Shutdown, nil
 }
 
-// baseHandler builds the text/JSON handler used in non-OTLP mode.
-// Mirrors the shape New produces, so callers that only care about the
-// handler (no Shutdown needed) can keep using New.
+// baseHandler builds the text/JSON slog handler used by New and by
+// Init's non-OTLP path. Centralises the FormatAuto detection so the
+// two entry points cannot diverge.
 func baseHandler(opts Options) slog.Handler {
 	out := opts.Output
 	if out == nil {
