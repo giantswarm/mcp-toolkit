@@ -13,13 +13,12 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
 
 // captureStderr swaps os.Stderr for a pipe writer for the duration of
-// fn and returns whatever was written. Standard Go-test idiom for
-// asserting on stderr output without taking over the test runner's
-// own stream.
+// fn and returns whatever was written.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stderr
@@ -42,9 +41,7 @@ func captureStderr(t *testing.T, fn func()) string {
 
 func TestInit_WithStderrMirror_OTLPMode_WritesJSONToStderr(t *testing.T) {
 	restoreGlobalLoggerProvider(t)
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	enableOTLPLogsNone(t)
 
 	out := captureStderr(t, func() {
 		logger, shutdown, err := logging.Init(context.Background(),
@@ -67,9 +64,7 @@ func TestInit_WithStderrMirror_OTLPMode_WritesJSONToStderr(t *testing.T) {
 
 func TestInit_WithStderrMirror_AttachesTraceIDsInsideSpan(t *testing.T) {
 	restoreGlobalLoggerProvider(t)
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	enableOTLPLogsNone(t)
 
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(tracetest.NewInMemoryExporter()))
 	prev := otel.GetTracerProvider()
@@ -100,9 +95,7 @@ func TestInit_WithStderrMirror_AttachesTraceIDsInsideSpan(t *testing.T) {
 
 func TestInit_WithStderrMirror_NonOTLPMode_Errors(t *testing.T) {
 	restoreGlobalLoggerProvider(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_LOGS_EXPORTER", "")
+	clearOTLPEnv(t)
 
 	logger, shutdown, err := logging.Init(context.Background(),
 		logging.WithStderrMirror(),
@@ -113,7 +106,7 @@ func TestInit_WithStderrMirror_NonOTLPMode_Errors(t *testing.T) {
 	// Each of the three opt-in env vars must be named in the error so
 	// a future refactor that silently drops one is caught.
 	require.Contains(t, err.Error(), "WithStderrMirror")
-	require.Contains(t, err.Error(), "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-	require.Contains(t, err.Error(), "OTEL_EXPORTER_OTLP_ENDPOINT")
-	require.Contains(t, err.Error(), "OTEL_LOGS_EXPORTER")
+	require.Contains(t, err.Error(), mcptoolkitotel.EnvExporterOTLPLogsEndpoint)
+	require.Contains(t, err.Error(), mcptoolkitotel.EnvExporterOTLPEndpoint)
+	require.Contains(t, err.Error(), mcptoolkitotel.EnvLogsExporter)
 }

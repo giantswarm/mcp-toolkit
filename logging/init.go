@@ -81,7 +81,11 @@ func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 
 	if c.stderrMirror {
 		if !otlpMode {
-			return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_LOGS_EXPORTER)")
+			return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of %s, %s, %s)",
+				mcptoolkitotel.EnvExporterOTLPLogsEndpoint,
+				mcptoolkitotel.EnvExporterOTLPEndpoint,
+				mcptoolkitotel.EnvLogsExporter,
+			)
 		}
 		c.extraHandlers = append(c.extraHandlers, newStderrMirrorHandler(os.Stderr, c.level))
 	}
