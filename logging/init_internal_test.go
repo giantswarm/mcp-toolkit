@@ -126,6 +126,31 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	require.Equal(t, "1.2.3-test", version.AsString())
 }
 
+// TestInitWithExporter_WithFormatIgnoredInOTLPMode verifies that
+// WithFormat is a non-OTLP option: the OTLP primary handler is always
+// otelslog.Handler regardless of the requested slog format.
+func TestInitWithExporter_WithFormatIgnoredInOTLPMode(t *testing.T) {
+	restoreGlobalLoggerProvider(t)
+
+	exp := &captureExporter{}
+	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
+		// FormatJSON would force slog.NewJSONHandler in the non-OTLP
+		// path; in OTLP mode it must be ignored.
+		format:      FormatJSON,
+		serviceName: "muster",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	logger.Info("hello")
+	require.NoError(t, shutdown(context.Background()))
+
+	// The record reached the OTLP capture exporter — confirming the
+	// primary is the otelslog bridge, not the slog.JSONHandler that
+	// FormatJSON would imply.
+	require.Len(t, exp.collected(), 1)
+}
+
 // TestInitWithExporter_WithResourceOptions_AttachesCallerAttrs
 // verifies that caller-supplied resource attributes land on the
 // LoggerProvider's Resource alongside the toolkit defaults.

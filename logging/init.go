@@ -52,14 +52,15 @@ type Shutdown func(ctx context.Context) error
 //
 // Option applicability:
 //
-//   - WithOutput and WithLevel apply only to the non-OTLP primary
-//     handler. OTLP routes records to the LoggerProvider, not to a
-//     writer. otelslog.Handler.Enabled defers to the OTel
-//     LoggerProvider, not to slog's Level filter; configure OTLP-side
-//     filtering via the OTel SDK.
+//   - WithFormat, WithOutput, WithLevel apply only to the non-OTLP
+//     primary handler. OTLP routes records to the LoggerProvider, not
+//     to a writer; the primary handler in OTLP mode is always
+//     otelslog.Handler, regardless of WithFormat. otelslog.Handler's
+//     Enabled defers to the OTel LoggerProvider, not to slog's Level
+//     filter; configure OTLP-side filtering via the OTel SDK.
 //   - WithLoggerName, WithServiceName, WithServiceVersion,
 //     WithResourceOptions apply only to OTLP mode.
-//   - WithExtraHandlers and WithFormat apply in both modes.
+//   - WithExtraHandlers applies in both modes.
 //
 // The OTLP path requires neither traces nor metrics to be configured —
 // the three signals are independent.

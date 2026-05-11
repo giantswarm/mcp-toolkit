@@ -72,18 +72,19 @@ shutdownMetrics, err := metrics.Init(ctx,
 )
 // handle err; defer shutdownMetrics(ctx)
 
-handler, shutdownLogging, err := logging.Init(ctx,
+logger, shutdownLogging, err := logging.Init(ctx,
     logging.WithServiceName("my-mcp"),
     logging.WithServiceVersion("1.2.3"),
     logging.WithLoggerName("github.com/your/repo"),
 )
-// handle err; defer shutdownLogging(ctx); slog.SetDefault(slog.New(handler))
+// handle err; defer shutdownLogging(ctx); slog.SetDefault(logger)
 ```
 
-Override knobs are package-local `Option` functions: `tracing.WithSampler`,
-`tracing.WithPropagators`, `metrics.WithViews`, `metrics.WithExemplarFilter`,
-`logging.WithExtraHandlers`, etc. Each package's runnable `Example_*`
-functions show idiomatic combinations.
+Override knobs are package-local `Option` functions:
+`metrics.WithViews`, `metrics.WithExemplarFilter`,
+`logging.WithExtraHandlers`, `logging.WithTraceContextAttrs`,
+`*.WithResourceOptions`. Each package's runnable `Example_*` functions
+show idiomatic combinations.
 
 ## Contributing
 
