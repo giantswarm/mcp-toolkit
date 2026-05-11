@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
 
@@ -16,9 +17,18 @@ import (
 // non-OTLP fallback path.
 func clearOTLPEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_LOGS_EXPORTER", "")
+	t.Setenv(mcptoolkitotel.EnvExporterOTLPLogsEndpoint, "")
+	t.Setenv(mcptoolkitotel.EnvExporterOTLPEndpoint, "")
+	t.Setenv(mcptoolkitotel.EnvLogsExporter, "")
+}
+
+// enableOTLPLogsNone selects the OTLP code path via the no-op
+// autoexport exporter.
+func enableOTLPLogsNone(t *testing.T) {
+	t.Helper()
+	t.Setenv(mcptoolkitotel.EnvLogsExporter, "none")
+	t.Setenv(mcptoolkitotel.EnvExporterOTLPLogsEndpoint, "")
+	t.Setenv(mcptoolkitotel.EnvExporterOTLPEndpoint, "")
 }
 
 func TestInit_TextFormat(t *testing.T) {

@@ -24,44 +24,44 @@ func TestConfigured(t *testing.T) {
 		{
 			name:   "traces: signal-specific OTLP endpoint",
 			signal: "traces",
-			env:    map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318"},
+			env:    map[string]string{otel.EnvExporterOTLPTracesEndpoint: "http://collector:4318"},
 			want:   true,
 		},
 		{
 			name:   "metrics: shared OTLP endpoint",
 			signal: "metrics",
-			env:    map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318"},
+			env:    map[string]string{otel.EnvExporterOTLPEndpoint: "http://collector:4318"},
 			want:   true,
 		},
 		{
 			name:   "logs: explicit exporter",
 			signal: "logs",
-			env:    map[string]string{"OTEL_LOGS_EXPORTER": "console"},
+			env:    map[string]string{otel.EnvLogsExporter: "console"},
 			want:   true,
 		},
 		{
 			name:   "metrics: prometheus exporter selection counts",
 			signal: "metrics",
-			env:    map[string]string{"OTEL_METRICS_EXPORTER": "prometheus"},
+			env:    map[string]string{otel.EnvMetricsExporter: "prometheus"},
 			want:   true,
 		},
 		{
 			name:   "traces: other-signal env does NOT leak",
 			signal: "traces",
-			env:    map[string]string{"OTEL_METRICS_EXPORTER": "otlp"},
+			env:    map[string]string{otel.EnvMetricsExporter: "otlp"},
 			want:   false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, key := range []string{
-				"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-				"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-				"OTEL_EXPORTER_OTLP_ENDPOINT",
-				"OTEL_TRACES_EXPORTER",
-				"OTEL_METRICS_EXPORTER",
-				"OTEL_LOGS_EXPORTER",
+				otel.EnvExporterOTLPTracesEndpoint,
+				otel.EnvExporterOTLPMetricsEndpoint,
+				otel.EnvExporterOTLPLogsEndpoint,
+				otel.EnvExporterOTLPEndpoint,
+				otel.EnvTracesExporter,
+				otel.EnvMetricsExporter,
+				otel.EnvLogsExporter,
 			} {
 				t.Setenv(key, "")
 			}

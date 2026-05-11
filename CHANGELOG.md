@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `logging.WithStderrMirror` option: in OTLP mode, appends a `slog.JSONHandler` on `os.Stderr` (wrapped with `WithTraceContextAttrs` so records carry `trace_id` / `span_id`) to the `ExtraHandlers` list. `Init` returns an error when applied without OTLP logs configured.
+
 ## [0.2.0] - 2026-05-11
 
 ### Added

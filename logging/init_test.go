@@ -21,11 +21,7 @@ func restoreGlobalLoggerProvider(t *testing.T) {
 
 func TestInit_OTLP_NoneExporter_ReturnsShutdown(t *testing.T) {
 	restoreGlobalLoggerProvider(t)
-	// "none" is the no-op autoexport exporter — selects the OTLP code
-	// path without actually attempting a network connection.
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	enableOTLPLogsNone(t)
 
 	l, shutdown, err := logging.Init(context.Background(),
 		logging.WithServiceName("test-service"),
@@ -36,7 +32,5 @@ func TestInit_OTLP_NoneExporter_ReturnsShutdown(t *testing.T) {
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	l.Info("hello", "k", "v")
-	// Use slog.LevelDebug to silence the "v" unused warning in some
-	// linter configs — just a sanity call.
 	l.Log(context.Background(), slog.LevelInfo, "another")
 }
