@@ -39,6 +39,11 @@ type InitOptions struct {
 // exporter via autoexport from OTEL_METRICS_EXPORTER (and the OTLP
 // endpoint envs). See the package doc for the full env-var matrix.
 //
+// Init must be called at most once per process. A second call installs
+// a new global MeterProvider, leaving the first one's Reader goroutine
+// (and Prometheus HTTP server, in prometheus mode) running with no way
+// to recover a reference for shutdown.
+//
 // When no exporter is configured, Init returns a no-op Shutdown and
 // leaves the SDK's no-op MeterProvider in place — consumers can still
 // call otel.Meter(...) safely, they just produce nothing.
@@ -67,9 +72,10 @@ func Init(ctx context.Context, opts InitOptions) (Shutdown, error) {
 }
 
 // initWithReader constructs the MeterProvider against an explicit
-// Reader. Split from Init so tests can inject a ManualReader for
-// deterministic record capture; production callers go through Init,
-// which selects the Reader via autoexport.
+// Reader. The seam exists so the Reader is a parameter rather than a
+// hidden side effect of autoexport reading the environment; the
+// package-internal test suite uses it to inject a ManualReader for
+// deterministic record capture.
 func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptions) (Shutdown, error) {
 	// Hand reader ownership to the MeterProvider on success; on any
 	// error before that handover we must shut it down ourselves or
@@ -101,6 +107,10 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 		return nil, fmt.Errorf("otel resource: %w", err)
 	}
 
+	// Explicit pin: this is the SDK default at v1.43.0, but the godoc
+	// on WithExemplarFilter reads "SampledFilter". Pinning insulates
+	// consumers from default drift if upstream resolves that
+	// disagreement in either direction.
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(reader),
 		sdkmetric.WithResource(res),

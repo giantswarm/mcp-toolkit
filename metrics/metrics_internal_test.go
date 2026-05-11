@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,19 +13,34 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+// restoreGlobals snapshots the global TracerProvider and MeterProvider
+// and restores them on cleanup. initWithReader installs a real
+// MeterProvider as the global — without this, the first test that
+// hits this path leaves a stub provider installed for every test that
+// follows.
+func restoreGlobals(t *testing.T) {
+	t.Helper()
+	prevTP := otel.GetTracerProvider()
+	prevMP := otel.GetMeterProvider()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prevTP)
+		otel.SetMeterProvider(prevMP)
+	})
+}
+
 // TestInitWithReader_HistogramExemplarAttachesTraceID verifies that
 // Init's MeterProvider uses an exemplar filter that attaches the
 // active span's TraceID when histogram.Record is called inside a
 // sampled span context. This is the mechanism behind Grafana's
 // "click latency bucket → jump to trace" pivot.
 func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
+	restoreGlobals(t)
+
 	// In-memory tracer so we can grab the TraceID we expect to see
 	// on the exemplar.
 	tracerExp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(tracerExp))
-	prevTP := otel.GetTracerProvider()
 	otel.SetTracerProvider(tp)
-	t.Cleanup(func() { otel.SetTracerProvider(prevTP) })
 
 	// Inject a ManualReader so we can collect synchronously without
 	// touching the network.
@@ -56,10 +72,11 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 			if m.Name != "test.duration" {
 				continue
 			}
-			h := m.Data.(metricdata.Histogram[float64])
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			require.True(t, ok, "test.duration must be a float64 Histogram, got %T", m.Data)
 			for _, dp := range h.DataPoints {
 				for _, ex := range dp.Exemplars {
-					if hexTraceID(ex.TraceID) == wantTraceID {
+					if hex.EncodeToString(ex.TraceID) == wantTraceID {
 						sawExemplar = true
 					}
 				}
@@ -67,14 +84,4 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 		}
 	}
 	require.True(t, sawExemplar, "expected histogram exemplar carrying the active span's TraceID")
-}
-
-func hexTraceID(b []byte) string {
-	const hex = "0123456789abcdef"
-	out := make([]byte, len(b)*2)
-	for i, x := range b {
-		out[i*2] = hex[x>>4]
-		out[i*2+1] = hex[x&0x0f]
-	}
-	return string(out)
 }

@@ -47,6 +47,10 @@ type InitOptions struct {
 // Init returns the slog.Handler to use and a Shutdown that drains the
 // LoggerProvider on graceful exit.
 //
+// Init must be called at most once per process. A second call installs
+// a new global LoggerProvider, leaving the first one's BatchProcessor
+// goroutine running with no way to recover a reference for shutdown.
+//
 // When OTLP logs are configured (any of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
 // OTEL_EXPORTER_OTLP_ENDPOINT, or OTEL_LOGS_EXPORTER is set), the
 // returned handler is an otelslog.Handler wired to an OTel
@@ -56,6 +60,13 @@ type InitOptions struct {
 // otel/log/global.Logger) routes through it. Records carry the active
 // span's TraceID and SpanID automatically (the OTel SDK pulls
 // SpanContext from the call's context.Context).
+//
+// In OTLP mode all records flow exclusively through the LoggerProvider —
+// nothing is written to Output. If a deployment needs both OTLP delivery
+// and a stderr-scraped log stream, the caller can wrap the returned
+// handler in a fan-out slog.Handler that tees to slog.NewJSONHandler /
+// slog.NewTextHandler on Options.Output. The toolkit's stance is
+// single-pipeline-per-signal; teeing is a deliberate consumer decision.
 //
 // Otherwise the handler follows the same auto-detection as New: JSON
 // inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set), text otherwise.
@@ -83,10 +94,11 @@ func Init(ctx context.Context, opts InitOptions) (handler slog.Handler, shutdown
 	return initWithExporter(ctx, exp, opts)
 }
 
-// initWithExporter constructs the OTLP-mode handler against an explicit
-// Exporter. Split from Init so tests can inject a record-capturing
-// stub; production callers go through Init, which selects the exporter
-// via autoexport.
+// initWithExporter constructs the OTLP-mode handler against an
+// explicit Exporter. The seam exists so the exporter is a parameter
+// rather than a hidden side effect of autoexport reading the
+// environment; the package-internal test suite uses it to inject a
+// record-capturing Exporter.
 func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions) (slog.Handler, Shutdown, error) {
 	// Hand exp ownership to the LoggerProvider on success; on any
 	// error before that handover we must shut it down ourselves or
