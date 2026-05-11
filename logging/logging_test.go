@@ -2,6 +2,7 @@ package logging_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"testing"
@@ -11,9 +12,21 @@ import (
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
 
-func TestNew_TextFormat(t *testing.T) {
+// clearOTLPEnv blanks every OTLP logs env var so Init exercises the
+// non-OTLP fallback path.
+func clearOTLPEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_LOGS_EXPORTER", "")
+}
+
+func TestInit_TextFormat(t *testing.T) {
+	clearOTLPEnv(t)
 	var buf bytes.Buffer
-	l := logging.New(logging.WithFormat(logging.FormatText), logging.WithOutput(&buf))
+	l, _, err := logging.Init(context.Background(),
+		logging.WithFormat(logging.FormatText), logging.WithOutput(&buf))
+	require.NoError(t, err)
 	l.Info("hello", "k", "v")
 	out := buf.String()
 	require.Contains(t, out, `msg=hello`)
@@ -21,9 +34,12 @@ func TestNew_TextFormat(t *testing.T) {
 	require.NotContains(t, out, `{`, "text output must not look like JSON")
 }
 
-func TestNew_JSONFormat(t *testing.T) {
+func TestInit_JSONFormat(t *testing.T) {
+	clearOTLPEnv(t)
 	var buf bytes.Buffer
-	l := logging.New(logging.WithFormat(logging.FormatJSON), logging.WithOutput(&buf))
+	l, _, err := logging.Init(context.Background(),
+		logging.WithFormat(logging.FormatJSON), logging.WithOutput(&buf))
+	require.NoError(t, err)
 	l.Info("hello", "k", "v")
 
 	var rec map[string]any
@@ -33,13 +49,15 @@ func TestNew_JSONFormat(t *testing.T) {
 	require.Equal(t, "INFO", rec["level"])
 }
 
-func TestNew_LevelFiltering(t *testing.T) {
+func TestInit_LevelFiltering(t *testing.T) {
+	clearOTLPEnv(t)
 	var buf bytes.Buffer
-	l := logging.New(
+	l, _, err := logging.Init(context.Background(),
 		logging.WithFormat(logging.FormatText),
 		logging.WithLevel(slog.LevelWarn),
 		logging.WithOutput(&buf),
 	)
+	require.NoError(t, err)
 	l.Info("muted")
 	l.Warn("audible")
 	out := buf.String()
@@ -47,30 +65,37 @@ func TestNew_LevelFiltering(t *testing.T) {
 	require.Contains(t, out, "audible")
 }
 
-func TestNew_AutoPicksJSONInsideKubernetes(t *testing.T) {
+func TestInit_AutoPicksJSONInsideKubernetes(t *testing.T) {
+	clearOTLPEnv(t)
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
 	var buf bytes.Buffer
-	l := logging.New(logging.WithOutput(&buf))
+	l, _, err := logging.Init(context.Background(), logging.WithOutput(&buf))
+	require.NoError(t, err)
 	l.Info("hello")
 	require.True(t, json.Valid(buf.Bytes()), "expected JSON output: %s", buf.String())
 }
 
-func TestNew_AutoPicksTextOutsideKubernetes(t *testing.T) {
+func TestInit_AutoPicksTextOutsideKubernetes(t *testing.T) {
+	clearOTLPEnv(t)
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	var buf bytes.Buffer
-	l := logging.New(logging.WithOutput(&buf))
+	l, _, err := logging.Init(context.Background(), logging.WithOutput(&buf))
+	require.NoError(t, err)
 	l.Info("hello")
 	require.Contains(t, buf.String(), "msg=hello")
 	require.False(t, json.Valid(buf.Bytes()))
 }
 
-func TestNew_NoOptionsDoesNotPanic(t *testing.T) {
+func TestInit_NoOptionsDoesNotPanic(t *testing.T) {
+	clearOTLPEnv(t)
 	// Output nil → os.Stderr, Format zero → FormatAuto, Level zero
 	// → slog.LevelInfo. Capturing stderr would leak across tests, so
-	// we just confirm the constructor accepts no options and returns
-	// a usable logger.
-	l := logging.New()
+	// we just confirm Init accepts no options and returns a usable
+	// logger.
+	l, shutdown, err := logging.Init(context.Background())
+	require.NoError(t, err)
 	require.NotNil(t, l)
+	require.NoError(t, shutdown(context.Background()))
 }
 
 func TestRedactHost(t *testing.T) {

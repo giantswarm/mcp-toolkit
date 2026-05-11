@@ -9,24 +9,12 @@ import (
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
 
-// ExampleNew shows the simplest path: a slog.Logger with the
-// auto-detected handler (JSON inside Kubernetes, text otherwise) and
-// no OpenTelemetry plumbing. Use this for CLI tools, test harnesses,
-// and any code that doesn't need OTLP export.
-func ExampleNew() {
-	l := logging.New(
-		logging.WithLevel(slog.LevelInfo),
-		logging.WithOutput(os.Stderr),
-	)
-	l.Info("starting", "component", "auth")
-}
-
 // ExampleInit_basic shows the typical service composition root:
 // install the logger, defer Shutdown, get OTLP delivery when the
 // operator sets OTEL_EXPORTER_OTLP_LOGS_ENDPOINT or
 // OTEL_LOGS_EXPORTER, otherwise fall back to JSON-on-stderr.
 func ExampleInit_basic() {
-	handler, shutdown, err := logging.Init(context.Background(),
+	logger, shutdown, err := logging.Init(context.Background(),
 		logging.WithLevel(slog.LevelInfo),
 		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
 		logging.WithServiceName("your-mcp"),
@@ -37,7 +25,7 @@ func ExampleInit_basic() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(logger)
 	slog.Info("ready")
 }
 
@@ -63,7 +51,7 @@ func ExampleInit_otlpWithStderrMirror() {
 			Level: slog.LevelInfo,
 		}),
 	)
-	handler, shutdown, err := logging.Init(context.Background(),
+	logger, shutdown, err := logging.Init(context.Background(),
 		logging.WithLevel(slog.LevelInfo),
 		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
 		logging.WithServiceName("your-mcp"),
@@ -75,7 +63,7 @@ func ExampleInit_otlpWithStderrMirror() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	slog.New(handler).Info("ready")
+	logger.Info("ready")
 }
 
 // ExampleInit_warningOnlyExtra shows that ExtraHandlers can filter
@@ -88,7 +76,7 @@ func ExampleInit_warningOnlyExtra() {
 	warningHandler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
 	})
-	handler, shutdown, err := logging.Init(context.Background(),
+	logger, shutdown, err := logging.Init(context.Background(),
 		logging.WithLevel(slog.LevelInfo),
 		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
 		logging.WithServiceName("your-mcp"),
@@ -100,9 +88,8 @@ func ExampleInit_warningOnlyExtra() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	l := slog.New(handler)
-	l.Info("informational, goes to primary only")
-	l.Warn("warning, primary AND buf")
+	logger.Info("informational, goes to primary only")
+	logger.Warn("warning, primary AND buf")
 }
 
 // ExampleInit_fileAuditLog shows a file handler kept alongside the
@@ -122,7 +109,7 @@ func ExampleInit_fileAuditLog() {
 	auditHandler := slog.NewJSONHandler(auditFile, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
-	handler, shutdown, err := logging.Init(context.Background(),
+	logger, shutdown, err := logging.Init(context.Background(),
 		logging.WithLevel(slog.LevelInfo),
 		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
 		logging.WithServiceName("your-mcp"),
@@ -134,7 +121,7 @@ func ExampleInit_fileAuditLog() {
 	}
 	defer func() { _ = shutdown(context.Background()) }()
 
-	slog.New(handler).Info("authenticated",
+	logger.Info("authenticated",
 		slog.String("subject", "alice"),
 		slog.String("action", "list_pods"),
 	)

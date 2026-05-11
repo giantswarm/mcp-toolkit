@@ -73,7 +73,7 @@ func TestInitWithExporter_ExtraHandlersReceiveRecords(t *testing.T) {
 
 	exp := &captureExporter{}
 	extra := &extraSink{}
-	handler, shutdown, err := initWithExporter(t.Context(), exp, config{
+	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
 		loggerName:    "github.com/giantswarm/mcp-toolkit/logging/test",
 		serviceName:   "muster",
 		extraHandlers: []slog.Handler{extra},
@@ -81,7 +81,7 @@ func TestInitWithExporter_ExtraHandlersReceiveRecords(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
-	slog.New(handler).Info("hello", "k", "v")
+	logger.Info("hello", "k", "v")
 	require.NoError(t, shutdown(context.Background()))
 
 	require.Len(t, exp.collected(), 1, "primary OTLP exporter must receive the record")
@@ -94,7 +94,7 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	restoreGlobalLoggerProvider(t)
 
 	exp := &captureExporter{}
-	handler, shutdown, err := initWithExporter(t.Context(), exp, config{
+	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
 		loggerName:     "github.com/giantswarm/mcp-toolkit/logging/test",
 		serviceName:    "muster",
 		serviceVersion: "1.2.3-test",
@@ -102,7 +102,7 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
-	slog.New(handler).Info("hello", "k", "v")
+	logger.Info("hello", "k", "v")
 
 	// Drain the BatchProcessor synchronously so we can assert on the
 	// emitted record without sleeping or polling.

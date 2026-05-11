@@ -50,7 +50,7 @@ func WithBatchProcessorOptions(opts ...sdklog.BatchProcessorOption) Option {
 	return func(c *config) { c.batchProcessorOptions = append(c.batchProcessorOptions, opts...) }
 }
 
-// Init returns the slog.Handler to use and a Shutdown that drains the
+// Init returns an *slog.Logger and a Shutdown that drains the
 // LoggerProvider on graceful exit.
 //
 // Init must be called at most once per process. A second call installs
@@ -67,15 +67,19 @@ func WithBatchProcessorOptions(opts ...sdklog.BatchProcessorOption) Option {
 // span's TraceID and SpanID automatically (the OTel SDK pulls
 // SpanContext from the call's context.Context).
 //
-// Otherwise the primary handler follows the same auto-detection as
-// New: JSON inside a Kubernetes pod (KUBERNETES_SERVICE_HOST set),
-// text otherwise.
+// Otherwise the primary handler is JSON inside a Kubernetes pod
+// (KUBERNETES_SERVICE_HOST set), text otherwise, with no OTLP
+// pipeline — the Shutdown is a no-op closure.
 //
 // WithExtraHandlers, when applied, fans out alongside the primary —
 // every record reaches the primary plus each extra. This is how to
 // keep stderr alive in OTLP mode (pass a
 // slog.NewJSONHandler(os.Stderr, nil) as an extra), tee to a file, or
 // mirror to a secondary backend. Both modes honour ExtraHandlers.
+//
+// Callers that need to wrap the underlying handler (a domain
+// subsystem layer, attribute redaction, etc.) can call
+// Logger.Handler() on the returned value.
 //
 // Option applicability:
 //
@@ -91,13 +95,13 @@ func WithBatchProcessorOptions(opts ...sdklog.BatchProcessorOption) Option {
 //
 // The OTLP path requires neither traces nor metrics to be configured —
 // the three signals are independent.
-func Init(ctx context.Context, opts ...Option) (slog.Handler, Shutdown, error) {
+func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 	c := config{}
 	for _, opt := range opts {
 		opt(&c)
 	}
 	if !otlpLogsConfigured() {
-		return compose(baseHandler(c), c.extraHandlers), noopShutdown, nil
+		return slog.New(compose(baseHandler(c), c.extraHandlers)), noopShutdown, nil
 	}
 
 	exp, err := autoexport.NewLogExporter(ctx)
@@ -120,11 +124,11 @@ func compose(primary slog.Handler, extras []slog.Handler) slog.Handler {
 	return newFanout(all)
 }
 
-// initWithExporter constructs the OTLP-mode handler against an
+// initWithExporter constructs the OTLP-mode logger against an
 // explicit Exporter. The seam exists so the exporter is a parameter
 // rather than a hidden side effect of autoexport reading the
 // environment.
-func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (slog.Handler, Shutdown, error) {
+func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog.Logger, Shutdown, error) {
 	exporterOwned := false
 	defer func() {
 		if exporterOwned {
@@ -145,7 +149,7 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (slog.
 	exporterOwned = true
 	global.SetLoggerProvider(lp)
 	primary := otelslog.NewHandler(c.loggerName, otelslog.WithLoggerProvider(lp))
-	return compose(primary, c.extraHandlers), lp.Shutdown, nil
+	return slog.New(compose(primary, c.extraHandlers)), lp.Shutdown, nil
 }
 
 // buildResource composes the SDK Resource for the LoggerProvider.

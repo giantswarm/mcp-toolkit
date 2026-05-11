@@ -105,23 +105,6 @@ func WithExtraHandlers(handlers ...slog.Handler) Option {
 	return func(c *config) { c.extraHandlers = append(c.extraHandlers, handlers...) }
 }
 
-// New returns an *slog.Logger configured per opts. The handler is the
-// text/JSON one selected by WithFormat — New is the right call for
-// CLI tools, tests, and any code path that does not need OpenTelemetry
-// logs.
-//
-// For services that emit logs via OTLP and own a LoggerProvider
-// lifecycle, use Init: it returns the slog.Handler plus a Shutdown
-// closure and delegates handler construction here in the non-OTLP
-// path.
-func New(opts ...Option) *slog.Logger {
-	c := config{}
-	for _, opt := range opts {
-		opt(&c)
-	}
-	return slog.New(compose(baseHandler(c), c.extraHandlers))
-}
-
 // baseHandler builds the text/JSON slog handler. Single source of
 // FormatAuto detection in the package.
 func baseHandler(c config) slog.Handler {
