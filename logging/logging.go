@@ -4,7 +4,6 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -37,28 +36,12 @@ type Options struct {
 	Output io.Writer
 }
 
-// New returns an *slog.Logger configured per opts.
+// New returns an *slog.Logger configured per opts. The handler is the
+// text/JSON one selected by opts.Format; for OTLP-capable
+// initialisation that returns a Shutdown for the LoggerProvider, use
+// Init.
 func New(opts Options) *slog.Logger {
-	out := opts.Output
-	if out == nil {
-		out = os.Stderr
-	}
-	format := opts.Format
-	if format == FormatAuto {
-		if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-			format = FormatJSON
-		} else {
-			format = FormatText
-		}
-	}
-	hopts := &slog.HandlerOptions{Level: opts.Level}
-	var h slog.Handler
-	if format == FormatJSON {
-		h = slog.NewJSONHandler(out, hopts)
-	} else {
-		h = slog.NewTextHandler(out, hopts)
-	}
-	return slog.New(h)
+	return slog.New(baseHandler(opts))
 }
 
 const redactedIP = "<redacted-ip>"

@@ -5,6 +5,15 @@
 // running inside a Kubernetes pod (auto-detected via
 // KUBERNETES_SERVICE_HOST).
 //
+// Init extends New with an OpenTelemetry logs branch: when any of
+// OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, or
+// OTEL_LOGS_EXPORTER is set, the returned handler is an
+// otelslog.Handler wired to a LoggerProvider that ships records via
+// OTLP. Records emitted from within an active span carry the
+// SpanContext (TraceID + SpanID) for log ↔ trace correlation in
+// Grafana. The Shutdown returned by Init drains the provider on
+// graceful exit; in non-OTLP mode it is a no-op closure.
+//
 // RedactHost scrubs IP addresses and URL userinfo before they land in
 // logs. It is the only redaction primitive in this package because
 // URL parsing plus IPv6 surgery is genuinely non-trivial; format-only

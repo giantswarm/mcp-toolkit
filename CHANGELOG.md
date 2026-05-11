@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `logging.Init` returns a `slog.Handler` plus a `Shutdown` for the OpenTelemetry `LoggerProvider`. When any of `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `OTEL_LOGS_EXPORTER` is set, the handler is an `otelslog.Handler` wired to a `BatchProcessor` and an autoexport-selected exporter; records emitted from inside an active span carry the `SpanContext` (TraceID + SpanID) automatically for log ↔ trace correlation. Otherwise the handler is the same text/JSON one `New` produces, and `Shutdown` is a no-op. The OTLP path requires neither traces nor metrics to be configured — the three signals are independent. Use `New` when no `Shutdown` is needed (no OTLP, no `LoggerProvider` lifecycle); use `Init` from a service composition root that wants OTLP logs.
+- `logging.InitOptions` embeds `Options` and adds `ServiceName` / `ServiceVersion` written as `semconv.ServiceName` / `semconv.ServiceVersion` on the OTLP `LoggerProvider`'s `Resource`. Both honour the standard env-var overrides (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`). The non-OTLP path ignores them: pod / container / namespace identity comes from log-collector stream metadata.
+
 ## [0.1.0] - 2026-05-07
 
 ### Added
