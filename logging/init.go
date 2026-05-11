@@ -35,7 +35,9 @@ type Shutdown func(ctx context.Context) error
 // LoggerProvider so any code that emits OTel logs directly (e.g. via
 // otel/log/global.Logger) routes through it. Records carry the active
 // span's TraceID and SpanID automatically (the OTel SDK pulls
-// SpanContext from the call's context.Context).
+// SpanContext from the call's context.Context). WithStderrMirror, if
+// applied, synthesises an additional slog.JSONHandler on os.Stderr
+// and appends it to the ExtraHandlers list — see its godoc.
 //
 // Otherwise the primary handler is JSON inside a Kubernetes pod
 // (KUBERNETES_SERVICE_HOST set), text otherwise, with no OTLP
@@ -77,13 +79,11 @@ func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 	}
 	otlpMode := mcptoolkitotel.Configured("logs")
 
-	if c.stderrMirror && !otlpMode {
-		return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_LOGS_EXPORTER)")
-	}
 	if c.stderrMirror {
-		c.extraHandlers = append(c.extraHandlers, WithTraceContextAttrs(
-			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: c.level}),
-		))
+		if !otlpMode {
+			return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_LOGS_EXPORTER)")
+		}
+		c.extraHandlers = append(c.extraHandlers, newStderrMirrorHandler(os.Stderr, c.level))
 	}
 
 	if !otlpMode {

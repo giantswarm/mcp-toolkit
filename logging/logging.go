@@ -131,6 +131,13 @@ func WithStderrMirror() Option {
 	return func(c *config) { c.stderrMirror = true }
 }
 
+// newStderrMirrorHandler is the handler synthesised by
+// WithStderrMirror. Extracted so the level-honouring contract is
+// unit-testable without going through Init or touching os.Stderr.
+func newStderrMirrorHandler(w io.Writer, level slog.Level) slog.Handler {
+	return WithTraceContextAttrs(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
+}
+
 // baseHandler builds the text/JSON slog handler. Single source of
 // FormatAuto detection in the package.
 func baseHandler(c config) slog.Handler {
