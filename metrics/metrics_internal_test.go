@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -84,4 +85,48 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 		}
 	}
 	require.True(t, sawExemplar, "expected histogram exemplar carrying the active span's TraceID")
+}
+
+// TestInitWithReader_ExemplarFilter_AlwaysOff verifies that an
+// InitOptions.ExemplarFilter override is honoured: AlwaysOff stops the
+// MeterProvider from attaching exemplars even when histogram.Record
+// fires inside a sampled span context.
+func TestInitWithReader_ExemplarFilter_AlwaysOff(t *testing.T) {
+	restoreGlobals(t)
+
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(tracetest.NewInMemoryExporter()))
+	otel.SetTracerProvider(tp)
+
+	reader := sdkmetric.NewManualReader()
+	shutdown, err := initWithReader(t.Context(), reader, InitOptions{
+		ServiceName:    "test-service",
+		ExemplarFilter: exemplar.AlwaysOffFilter,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	tracer := otel.Tracer("github.com/giantswarm/mcp-toolkit/metrics/test")
+	ctx, span := tracer.Start(context.Background(), "test-span")
+
+	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
+		Float64Histogram("test.duration")
+	require.NoError(t, err)
+	hist.Record(ctx, 0.123)
+	span.End()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "test.duration" {
+				continue
+			}
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			require.True(t, ok)
+			for _, dp := range h.DataPoints {
+				require.Empty(t, dp.Exemplars, "AlwaysOffFilter must suppress all exemplars")
+			}
+		}
+	}
 }

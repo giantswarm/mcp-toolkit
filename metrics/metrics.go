@@ -33,6 +33,26 @@ type InitOptions struct {
 	// OTEL_SERVICE_VERSION env var; pass the build version here or in
 	// OTEL_RESOURCE_ATTRIBUTES.
 	ServiceVersion string
+	// ExemplarFilter overrides the default exemplar.TraceBasedFilter
+	// applied to the MeterProvider. Common overrides:
+	//
+	//   - exemplar.AlwaysOnFilter for local dev / tests where there
+	//     is no tracer but exemplars on every observation are useful
+	//     for debugging.
+	//   - exemplar.AlwaysOffFilter to disable exemplars entirely
+	//     when the metrics backend does not ingest them or exemplar
+	//     cardinality is a cost concern.
+	//   - a custom exemplar.Filter for application-specific
+	//     predicates (e.g. only attach exemplars to slow requests).
+	//
+	// There is no OTEL_METRICS_EXEMPLAR_FILTER env var in the OTel
+	// spec at v1.x, so configuration via this field is the only way
+	// to deviate from the default.
+	//
+	// Nil keeps exemplar.TraceBasedFilter: attach the active span's
+	// TraceID when the SpanContext is sampled. Suitable for
+	// production Grafana / Mimir + Tempo correlation.
+	ExemplarFilter exemplar.Filter
 }
 
 // Init installs the global OpenTelemetry MeterProvider, selecting the
@@ -53,12 +73,11 @@ type InitOptions struct {
 // autoexport-hosted Prometheus mode, Shutdown also closes the
 // /metrics HTTP server.
 //
-// The MeterProvider is configured with exemplar.TraceBasedFilter
-// (which is the SDK default today, but pinning it here insulates
-// consumers from future default changes). Histogram observations
-// recorded with a context that carries a sampled SpanContext attach
-// the active span's TraceID as an exemplar — Grafana's "click latency
-// bucket → jump to trace" pivot relies on this.
+// The MeterProvider is configured with exemplar.TraceBasedFilter by
+// default — the same value as the SDK default at v1.43.0, pinned
+// here to insulate consumers from future SDK drift. Override via
+// InitOptions.ExemplarFilter when the production-correlation default
+// is wrong for the deployment.
 func Init(ctx context.Context, opts InitOptions) (Shutdown, error) {
 	if !metricsConfigured() {
 		return func(context.Context) error { return nil }, nil
@@ -105,14 +124,18 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 		return nil, fmt.Errorf("otel resource: %w", err)
 	}
 
-	// Explicit pin: this is the SDK default at v1.43.0, but the godoc
-	// on WithExemplarFilter reads "SampledFilter". Pinning insulates
-	// consumers from default drift if upstream resolves that
-	// disagreement in either direction.
+	// Explicit pin: TraceBasedFilter is the SDK default at v1.43.0,
+	// but the godoc on WithExemplarFilter reads "SampledFilter".
+	// Pinning insulates consumers from default drift if upstream
+	// resolves that disagreement in either direction.
+	exemplarFilter := opts.ExemplarFilter
+	if exemplarFilter == nil {
+		exemplarFilter = exemplar.TraceBasedFilter
+	}
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(reader),
 		sdkmetric.WithResource(res),
-		sdkmetric.WithExemplarFilter(exemplar.TraceBasedFilter),
+		sdkmetric.WithExemplarFilter(exemplarFilter),
 	)
 	readerOwned = true
 	otel.SetMeterProvider(mp)
