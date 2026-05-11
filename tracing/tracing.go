@@ -22,6 +22,10 @@ type Shutdown func(ctx context.Context) error
 
 // Init installs the global OTEL tracer provider and W3C propagator.
 //
+// Init must be called at most once per process. A second call installs
+// a new global TracerProvider, leaving the first one's BatchSpanProcessor
+// goroutine running with no way to recover a reference for shutdown.
+//
 // The exporter (OTLP/HTTP, OTLP/gRPC, console, or none) is selected by
 // autoexport from OTEL_TRACES_EXPORTER + OTEL_EXPORTER_OTLP_PROTOCOL.
 // Resource attributes come from process/OS/container detectors merged
@@ -49,6 +53,16 @@ func Init(ctx context.Context, serviceName, serviceVersion string) (Shutdown, er
 	if err != nil {
 		return nil, fmt.Errorf("otlp exporter: %w", err)
 	}
+	// Hand exp ownership to the TracerProvider on success; on any
+	// error before that handover we must shut it down ourselves or
+	// leak its underlying transport (gRPC client, batch goroutine).
+	exporterOwned := false
+	defer func() {
+		if exporterOwned {
+			return
+		}
+		_ = exp.Shutdown(ctx)
+	}()
 
 	var attrs []attribute.KeyValue
 	if serviceName != "" {
@@ -72,6 +86,7 @@ func Init(ctx context.Context, serviceName, serviceVersion string) (Shutdown, er
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
 	)
+	exporterOwned = true
 	otel.SetTracerProvider(tp)
 	return tp.Shutdown, nil
 }
