@@ -2,18 +2,15 @@ package logging
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
 // Shutdown drains the LoggerProvider on graceful exit. In non-OTLP
@@ -21,34 +18,6 @@ import (
 // LoggerProvider.Shutdown, which is itself safe to call more than once
 // and from multiple goroutines.
 type Shutdown func(ctx context.Context) error
-
-// resourceOpt is a thin alias so the Option func signature in
-// logging.go doesn't need to import resource. resource.Option is the
-// payload either way.
-type resourceOpt = resource.Option
-
-// batchOpt is a thin alias so the Option func signature in logging.go
-// doesn't need to import sdklog. sdklog.BatchProcessorOption is the
-// payload either way.
-type batchOpt = sdklog.BatchProcessorOption
-
-// WithResourceOptions appends resource.Option values to the toolkit's
-// resource.New option list. Use to add extra attributes
-// (deployment.environment, custom labels) or detectors (k8s, AWS,
-// GCP). The toolkit's own options — semconv ServiceName/Version,
-// Process, OS, Container, FromEnv — are applied first; caller-supplied
-// options follow. OTLP mode only.
-func WithResourceOptions(opts ...resource.Option) Option {
-	return func(c *config) { c.resourceOptions = append(c.resourceOptions, opts...) }
-}
-
-// WithBatchProcessorOptions appends sdklog.BatchProcessorOption values
-// to the BatchProcessor used in OTLP mode. Use to tune queue size,
-// export interval, or export timeout for high-throughput services.
-// Empty keeps the SDK defaults.
-func WithBatchProcessorOptions(opts ...sdklog.BatchProcessorOption) Option {
-	return func(c *config) { c.batchProcessorOptions = append(c.batchProcessorOptions, opts...) }
-}
 
 // Init returns an *slog.Logger and a Shutdown that drains the
 // LoggerProvider on graceful exit.
@@ -89,8 +58,7 @@ func WithBatchProcessorOptions(opts ...sdklog.BatchProcessorOption) Option {
 //     LoggerProvider, not to slog's Level filter; configure OTLP-side
 //     filtering via the OTel SDK.
 //   - WithLoggerName, WithServiceName, WithServiceVersion,
-//     WithResourceOptions, WithBatchProcessorOptions apply only to
-//     OTLP mode.
+//     WithResourceOptions apply only to OTLP mode.
 //   - WithExtraHandlers and WithFormat apply in both modes.
 //
 // The OTLP path requires neither traces nor metrics to be configured —
@@ -100,7 +68,7 @@ func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	if !otlpLogsConfigured() {
+	if !mcptoolkitotel.Configured("logs") {
 		return slog.New(compose(baseHandler(c), c.extraHandlers)), noopShutdown, nil
 	}
 
@@ -137,13 +105,13 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog
 		_ = exp.Shutdown(ctx)
 	}()
 
-	res, err := buildResource(ctx, c)
+	res, err := mcptoolkitotel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	lp := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(exp, c.batchProcessorOptions...)),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)),
 		sdklog.WithResource(res),
 	)
 	exporterOwned = true
@@ -152,37 +120,4 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog
 	return slog.New(compose(primary, c.extraHandlers)), lp.Shutdown, nil
 }
 
-// buildResource composes the SDK Resource for the LoggerProvider.
-// Toolkit defaults run first; caller-supplied ResourceOptions follow.
-func buildResource(ctx context.Context, c config) (*resource.Resource, error) {
-	var attrs []attribute.KeyValue
-	if c.serviceName != "" {
-		attrs = append(attrs, semconv.ServiceName(c.serviceName))
-	}
-	if c.serviceVersion != "" {
-		attrs = append(attrs, semconv.ServiceVersion(c.serviceVersion))
-	}
-	resourceOpts := []resource.Option{
-		resource.WithAttributes(attrs...),
-		resource.WithProcess(),
-		resource.WithOS(),
-		resource.WithContainer(),
-		resource.WithFromEnv(),
-	}
-	resourceOpts = append(resourceOpts, c.resourceOptions...)
-	res, err := resource.New(ctx, resourceOpts...)
-	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
-		return nil, fmt.Errorf("otel resource: %w", err)
-	}
-	return res, nil
-}
-
 func noopShutdown(context.Context) error { return nil }
-
-// otlpLogsConfigured returns true when any of the standard OTEL log
-// env vars opts in.
-func otlpLogsConfigured() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_LOGS_EXPORTER") != ""
-}

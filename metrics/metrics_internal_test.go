@@ -7,9 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -85,6 +87,90 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 		}
 	}
 	require.True(t, sawExemplar, "expected histogram exemplar carrying the active span's TraceID")
+}
+
+// TestInitWithReader_WithViews_AppliesCustomHistogramBuckets verifies
+// the WithViews override path: a View with custom bucket boundaries
+// changes the histogram aggregation for the matching instrument.
+func TestInitWithReader_WithViews_AppliesCustomHistogramBuckets(t *testing.T) {
+	restoreGlobals(t)
+
+	customBounds := []float64{0.0001, 0.0005, 0.001}
+	view := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: "test.duration"},
+		sdkmetric.Stream{
+			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: customBounds,
+			},
+		},
+	)
+
+	reader := sdkmetric.NewManualReader()
+	shutdown, err := initWithReader(t.Context(), reader, config{
+		views: []sdkmetric.View{view},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
+		Float64Histogram("test.duration")
+	require.NoError(t, err)
+	hist.Record(context.Background(), 0.0007)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	var bounds []float64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "test.duration" {
+				continue
+			}
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			require.True(t, ok)
+			require.NotEmpty(t, h.DataPoints)
+			bounds = h.DataPoints[0].Bounds
+		}
+	}
+	require.Equal(t, customBounds, bounds, "WithViews must override histogram bucket boundaries")
+}
+
+// TestInitWithReader_WithResourceOptions_AttachesCallerAttrs verifies
+// that caller-supplied resource attributes land on the MeterProvider's
+// Resource alongside the toolkit defaults.
+func TestInitWithReader_WithResourceOptions_AttachesCallerAttrs(t *testing.T) {
+	restoreGlobals(t)
+
+	reader := sdkmetric.NewManualReader()
+	shutdown, err := initWithReader(t.Context(), reader, config{
+		serviceName: "test-service",
+		resourceOptions: []resource.Option{resource.WithAttributes(
+			attribute.String("deployment.environment", "production"),
+			attribute.String("cluster.name", "glean"),
+		)},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	hist, err := otel.Meter("github.com/giantswarm/mcp-toolkit/metrics/test").
+		Float64Histogram("test.duration")
+	require.NoError(t, err)
+	hist.Record(context.Background(), 0.5)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	env, hasEnv := rm.Resource.Set().Value(attribute.Key("deployment.environment"))
+	require.True(t, hasEnv, "deployment.environment must be set on the Resource")
+	require.Equal(t, "production", env.AsString())
+	cluster, hasCluster := rm.Resource.Set().Value(attribute.Key("cluster.name"))
+	require.True(t, hasCluster, "cluster.name must be set on the Resource")
+	require.Equal(t, "glean", cluster.AsString())
+
+	// Sanity: toolkit defaults still applied.
+	svcName, hasSvcName := rm.Resource.Set().Value(attribute.Key("service.name"))
+	require.True(t, hasSvcName)
+	require.Equal(t, "test-service", svcName.AsString())
 }
 
 // TestInitWithReader_ExemplarFilter_AlwaysOff verifies that an

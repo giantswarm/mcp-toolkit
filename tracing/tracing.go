@@ -2,17 +2,15 @@ package tracing
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
 // Shutdown drains any pending spans. Idempotent.
@@ -26,8 +24,6 @@ type Option func(*config)
 type config struct {
 	serviceName     string
 	serviceVersion  string
-	propagators     []propagation.TextMapPropagator
-	sampler         sdktrace.Sampler
 	resourceOptions []resource.Option
 }
 
@@ -45,23 +41,6 @@ func WithServiceVersion(version string) Option {
 	return func(c *config) { c.serviceVersion = version }
 }
 
-// WithPropagators replaces the default TraceContext + Baggage text-map
-// propagators on otel.SetTextMapPropagator. Provide every propagator
-// the service should support — nothing is appended to the slice.
-// Common additions: B3 for legacy systems, Jaeger for vendor
-// compatibility.
-func WithPropagators(propagators ...propagation.TextMapPropagator) Option {
-	return func(c *config) { c.propagators = propagators }
-}
-
-// WithSampler overrides the SDK default ParentBased AlwaysSample.
-// Set to sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1)) for
-// 10% head sampling, or pass a custom sdktrace.Sampler for
-// per-request decisions.
-func WithSampler(sampler sdktrace.Sampler) Option {
-	return func(c *config) { c.sampler = sampler }
-}
-
 // WithResourceOptions appends resource.Option values to the toolkit's
 // resource.New option list. Use to add extra attributes
 // (deployment.environment, custom labels) or detectors (k8s, AWS,
@@ -72,8 +51,8 @@ func WithResourceOptions(opts ...resource.Option) Option {
 	return func(c *config) { c.resourceOptions = append(c.resourceOptions, opts...) }
 }
 
-// Init installs the global OpenTelemetry TracerProvider and the
-// text-map propagator.
+// Init installs the global OpenTelemetry TracerProvider and the W3C
+// TraceContext + Baggage propagators.
 //
 // Init must be called at most once per process. A second call installs
 // a new global TracerProvider, leaving the first one's
@@ -97,9 +76,11 @@ func Init(ctx context.Context, opts ...Option) (Shutdown, error) {
 		opt(&c)
 	}
 
-	otel.SetTextMapPropagator(buildPropagators(c.propagators))
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, propagation.Baggage{},
+	))
 
-	if !tracingConfigured() {
+	if !mcptoolkitotel.Configured("traces") {
 		return func(context.Context) error { return nil }, nil
 	}
 
@@ -115,65 +96,17 @@ func Init(ctx context.Context, opts ...Option) (Shutdown, error) {
 		_ = exp.Shutdown(ctx)
 	}()
 
-	res, err := buildResource(ctx, c)
+	res, err := mcptoolkitotel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	tpOpts := []sdktrace.TracerProviderOption{
+	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
-	}
-	if c.sampler != nil {
-		tpOpts = append(tpOpts, sdktrace.WithSampler(c.sampler))
-	}
-	tp := sdktrace.NewTracerProvider(tpOpts...)
+	)
 	exporterOwned = true
 	otel.SetTracerProvider(tp)
 	return tp.Shutdown, nil
 }
 
-// buildPropagators returns the text-map propagator to install: the
-// caller's choice when non-empty, otherwise the default
-// TraceContext + Baggage composite.
-func buildPropagators(custom []propagation.TextMapPropagator) propagation.TextMapPropagator {
-	if len(custom) > 0 {
-		return propagation.NewCompositeTextMapPropagator(custom...)
-	}
-	return propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{}, propagation.Baggage{},
-	)
-}
-
-// buildResource composes the SDK Resource for the TracerProvider.
-// Toolkit defaults run first; caller-supplied ResourceOptions follow.
-func buildResource(ctx context.Context, c config) (*resource.Resource, error) {
-	var attrs []attribute.KeyValue
-	if c.serviceName != "" {
-		attrs = append(attrs, semconv.ServiceName(c.serviceName))
-	}
-	if c.serviceVersion != "" {
-		attrs = append(attrs, semconv.ServiceVersion(c.serviceVersion))
-	}
-	resourceOpts := []resource.Option{
-		resource.WithAttributes(attrs...),
-		resource.WithProcess(),
-		resource.WithOS(),
-		resource.WithContainer(),
-		resource.WithFromEnv(),
-	}
-	resourceOpts = append(resourceOpts, c.resourceOptions...)
-	res, err := resource.New(ctx, resourceOpts...)
-	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
-		return nil, fmt.Errorf("otel resource: %w", err)
-	}
-	return res, nil
-}
-
-// tracingConfigured returns true when any of the standard OTEL trace
-// env vars opts in.
-func tracingConfigured() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_TRACES_EXPORTER") != ""
-}

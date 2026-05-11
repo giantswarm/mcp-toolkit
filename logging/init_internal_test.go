@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
@@ -122,4 +124,42 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	version, ok := res.Set().Value(semconv.ServiceVersionKey)
 	require.True(t, ok, "service.version must be set on the Resource")
 	require.Equal(t, "1.2.3-test", version.AsString())
+}
+
+// TestInitWithExporter_WithResourceOptions_AttachesCallerAttrs
+// verifies that caller-supplied resource attributes land on the
+// LoggerProvider's Resource alongside the toolkit defaults.
+func TestInitWithExporter_WithResourceOptions_AttachesCallerAttrs(t *testing.T) {
+	restoreGlobalLoggerProvider(t)
+
+	exp := &captureExporter{}
+	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
+		serviceName: "muster",
+		resourceOptions: []resource.Option{resource.WithAttributes(
+			attribute.String("deployment.environment", "production"),
+			attribute.String("cluster.name", "glean"),
+		)},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	logger.Info("hello")
+	require.NoError(t, shutdown(context.Background()))
+
+	got := exp.collected()
+	require.Len(t, got, 1)
+	res := got[0].Resource()
+	require.NotNil(t, res)
+
+	env, hasEnv := res.Set().Value(attribute.Key("deployment.environment"))
+	require.True(t, hasEnv, "deployment.environment must be set on the Resource")
+	require.Equal(t, "production", env.AsString())
+	cluster, hasCluster := res.Set().Value(attribute.Key("cluster.name"))
+	require.True(t, hasCluster, "cluster.name must be set on the Resource")
+	require.Equal(t, "glean", cluster.AsString())
+
+	// Sanity: toolkit defaults still applied.
+	svcName, hasSvcName := res.Set().Value(semconv.ServiceNameKey)
+	require.True(t, hasSvcName)
+	require.Equal(t, "muster", svcName.AsString())
 }

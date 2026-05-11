@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 // Format selects the slog handler shape.
@@ -23,21 +25,19 @@ const (
 	FormatJSON
 )
 
-// Option configures New and Init. The zero set of options produces a
-// logger writing to os.Stderr at slog.LevelInfo with auto-detected
-// format.
+// Option configures Init. The zero set of options produces a logger
+// writing to os.Stderr at slog.LevelInfo with auto-detected format.
 type Option func(*config)
 
 type config struct {
-	format                Format
-	level                 slog.Level
-	output                io.Writer
-	loggerName            string
-	serviceName           string
-	serviceVersion        string
-	extraHandlers         []slog.Handler
-	resourceOptions       []resourceOpt
-	batchProcessorOptions []batchOpt
+	format          Format
+	level           slog.Level
+	output          io.Writer
+	loggerName      string
+	serviceName     string
+	serviceVersion  string
+	extraHandlers   []slog.Handler
+	resourceOptions []resource.Option
 }
 
 // WithFormat overrides FormatAuto. Use FormatText to force text on a
@@ -103,6 +103,16 @@ func WithServiceVersion(version string) Option {
 // trace_id / span_id from the active SpanContext on each record.
 func WithExtraHandlers(handlers ...slog.Handler) Option {
 	return func(c *config) { c.extraHandlers = append(c.extraHandlers, handlers...) }
+}
+
+// WithResourceOptions appends resource.Option values to the toolkit's
+// resource.New option list. Use to add extra attributes
+// (deployment.environment, custom labels) or detectors (k8s, AWS,
+// GCP). The toolkit's own options — semconv ServiceName/Version,
+// Process, OS, Container, FromEnv — are applied first; caller-supplied
+// options follow. OTLP mode only.
+func WithResourceOptions(opts ...resource.Option) Option {
+	return func(c *config) { c.resourceOptions = append(c.resourceOptions, opts...) }
 }
 
 // baseHandler builds the text/JSON slog handler. Single source of

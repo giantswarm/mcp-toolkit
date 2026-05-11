@@ -2,17 +2,15 @@ package metrics
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
 // Shutdown drains pending metric data. Idempotent.
@@ -110,7 +108,7 @@ func Init(ctx context.Context, opts ...Option) (Shutdown, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	if !metricsConfigured() {
+	if !mcptoolkitotel.Configured("metrics") {
 		return func(context.Context) error { return nil }, nil
 	}
 
@@ -133,7 +131,7 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, c config) (Shu
 		_ = reader.Shutdown(ctx)
 	}()
 
-	res, err := buildResource(ctx, c)
+	res, err := mcptoolkitotel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -160,35 +158,3 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, c config) (Shu
 	return mp.Shutdown, nil
 }
 
-// buildResource composes the SDK Resource for the MeterProvider.
-// Toolkit defaults run first; caller-supplied ResourceOptions follow.
-func buildResource(ctx context.Context, c config) (*resource.Resource, error) {
-	var attrs []attribute.KeyValue
-	if c.serviceName != "" {
-		attrs = append(attrs, semconv.ServiceName(c.serviceName))
-	}
-	if c.serviceVersion != "" {
-		attrs = append(attrs, semconv.ServiceVersion(c.serviceVersion))
-	}
-	resourceOpts := []resource.Option{
-		resource.WithAttributes(attrs...),
-		resource.WithProcess(),
-		resource.WithOS(),
-		resource.WithContainer(),
-		resource.WithFromEnv(),
-	}
-	resourceOpts = append(resourceOpts, c.resourceOptions...)
-	res, err := resource.New(ctx, resourceOpts...)
-	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
-		return nil, fmt.Errorf("otel resource: %w", err)
-	}
-	return res, nil
-}
-
-// metricsConfigured returns true when any of the standard OTEL metric
-// env vars opts in.
-func metricsConfigured() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_METRICS_EXPORTER") != ""
-}
