@@ -11,31 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `metrics` package: `metrics.Init(ctx, ...metrics.Option)` returns a `Shutdown` for the OpenTelemetry `MeterProvider`, selecting the exporter via `autoexport.NewMetricReader` from `OTEL_METRICS_EXPORTER`. Supported values: `otlp` (push to a collector), `prometheus` (self-hosted `/metrics` on `OTEL_EXPORTER_PROMETHEUS_HOST:OTEL_EXPORTER_PROMETHEUS_PORT`, default `localhost:9464`), `console`, `none`, or comma-separated combinations (`otlp,prometheus` enables both pipelines from one set of instruments). When no exporter is configured, `Init` returns a no-op `Shutdown` and leaves the SDK's no-op MeterProvider in place. The provider is configured with `exemplar.TraceBasedFilter` explicitly (pinning the current SDK default) so histogram observations recorded inside a sampled span attach the TraceID for Grafana's latency-bucket-to-trace pivot. Mirrors `tracing.Init` and `logging.Init` for API symmetry across the three OTel signals.
-- `logging.Init(ctx, ...logging.Option)` returns an `*slog.Logger` plus a `Shutdown` for the OpenTelemetry `LoggerProvider`. When any of `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `OTEL_LOGS_EXPORTER` is set, the primary handler is an `otelslog.Handler` wired to a `BatchProcessor` and an autoexport-selected exporter, and the provider is also registered as the global OTel `LoggerProvider` (parity with `tracing.Init` registering the global `TracerProvider`). Records emitted from inside an active span carry the `SpanContext` (TraceID + SpanID) automatically for log ↔ trace correlation. Otherwise the primary handler is JSON (Kubernetes pod) or text (local) and the `Shutdown` is a no-op. Callers that need the underlying handler — to layer their own subsystem-tag wrapper, redaction handler, etc. — call `Logger.Handler()` on the returned value.
-- `logging.WithTraceContextAttrs(slog.Handler) slog.Handler` wraps a stdlib slog handler so emitted records carry `trace_id` and `span_id` slog.Attrs extracted from the context's active `SpanContext`. The OTLP primary picks up trace correlation natively (via the otelslog bridge writing SpanContext to the OTel `LogRecord`'s first-class fields); stdlib `JSONHandler` / `TextHandler` and most third-party handlers ignore ctx for trace data, so extras that need correlation should be wrapped in `WithTraceContextAttrs` before being passed via `logging.WithExtraHandlers`.
-- Override `Option` functions on each of the three Init signals (defaults preserved, opt-in):
-  - `tracing.WithResourceOptions` (append extra `resource.Option` values for attributes / detectors).
-  - `metrics.WithViews` (append `sdkmetric.View` values — rename, drop, override histogram bucket boundaries), `metrics.WithExemplarFilter` (override `exemplar.TraceBasedFilter` — `AlwaysOn` for dev, `AlwaysOff` to disable exemplars; the OTel spec has no `OTEL_METRICS_EXEMPLAR_FILTER` env var at v1.x), `metrics.WithResourceOptions`.
-  - `logging.WithExtraHandlers` (fan log records out to additional `slog.Handler` sinks — stderr mirror, file audit, secondary collector), `logging.WithResourceOptions`.
+- `metrics` package: `metrics.Init(ctx, ...metrics.Option) (Shutdown, error)` installs the global OTel `MeterProvider`. Exporter selected via `autoexport.NewMetricReader` from `OTEL_METRICS_EXPORTER`: `otlp`, `prometheus` (self-hosted `/metrics` on `OTEL_EXPORTER_PROMETHEUS_HOST:OTEL_EXPORTER_PROMETHEUS_PORT`, default `localhost:9464`), `console`, `none`, or comma-separated combinations. The provider pins `exemplar.TraceBasedFilter` so histogram observations recorded inside a sampled span attach the TraceID.
+- `logging.Init(ctx, ...logging.Option) (*slog.Logger, Shutdown, error)` installs the global OTel `LoggerProvider`. When `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or `OTEL_LOGS_EXPORTER` is set, the primary handler is an `otelslog.Handler` (records emitted inside an active span carry `SpanContext` natively). Otherwise the handler is JSON (in-pod, auto-detected via `KUBERNETES_SERVICE_HOST`) or text. Call `Logger.Handler()` to layer a custom handler on top.
+- `logging.WithTraceContextAttrs(slog.Handler) slog.Handler` wraps a stdlib slog handler so emitted records carry `trace_id` and `span_id` slog.Attrs extracted from the context's active `SpanContext`. Use on `WithExtraHandlers` sinks that need trace correlation.
+- Option constructors:
+  - `tracing.WithServiceName`, `WithServiceVersion`, `WithResourceOptions`.
+  - `metrics.WithServiceName`, `WithServiceVersion`, `WithViews`, `WithExemplarFilter`, `WithResourceOptions`.
+  - `logging.WithFormat`, `WithLevel`, `WithOutput`, `WithLoggerName`, `WithServiceName`, `WithServiceVersion`, `WithExtraHandlers`, `WithResourceOptions`.
 
-  Speculative options (`tracing.WithSampler`, `tracing.WithPropagators`, `logging.WithBatchProcessorOptions`) intentionally not exposed — add when a real consumer asks. Internal builder is structured so each is a ~10-line addition.
-- `internal/otel` package: holds toolkit-private helpers shared across the three signal packages. `otel.Build` composes the SDK Resource from service identity + caller-supplied extras; `otel.Configured` checks the standard OTEL env vars for a given signal (`"traces"` / `"metrics"` / `"logs"`). Not part of the public API surface (Go `internal/` package).
+  `WithResourceOptions` accepts `resource.Option` values appended to the toolkit defaults (semconv ServiceName/Version, Process, OS, Container, FromEnv). `WithExemplarFilter` accepts `exemplar.AlwaysOnFilter` / `AlwaysOffFilter` / any custom `exemplar.Filter`; there is no `OTEL_METRICS_EXEMPLAR_FILTER` env var in the OTel spec at v1.x.
 
 ### Changed
 
-- **Breaking:** all three OTel signal `Init` helpers move to a functional-options API for consistency:
-  - `tracing.Init(ctx, ...tracing.Option)` (was `Init(ctx, name, version string)`)
-  - `metrics.Init(ctx, ...metrics.Option)` (new in this PR)
-  - `logging.Init(ctx, ...logging.Option)` returns `(*slog.Logger, Shutdown, error)` (new in this PR)
-
-  Each package exposes an `Option` type and a small set of `WithX` constructors. Defaults are preserved — the common service-composition-root call stays one-line. The `Options` and `InitOptions` structs are removed; the `Format` enum and `FormatAuto` / `FormatText` / `FormatJSON` constants stay.
-
-- **Breaking:** `logging.New` is removed. It was a thin convenience that skipped the `ctx` parameter, the `Shutdown` return, and the `slog.New(handler)` wrap — but at the cost of doubled API surface and a "which one do I use?" decision for new readers. CLI tools and tests now call `logging.Init(context.Background(), ...)` directly; the non-OTLP fallback path is unchanged.
+- **Breaking:** `tracing.Init`, `metrics.Init`, `logging.Init` use a functional-options API (`Init(ctx, ...Option)` rather than struct-arg). `tracing.Init`'s prior positional `(name, version string)` signature is replaced by `WithServiceName` / `WithServiceVersion`. The `Options` / `InitOptions` structs are removed; `Format` / `FormatAuto` / `FormatText` / `FormatJSON` stay.
+- **Breaking:** `logging.New` is removed. Use `logging.Init(context.Background(), ...)` for the non-OTLP path.
 
 ### Fixed
 
-- `tracing.Init`: backport the `exporterOwned` defer pattern from `logging.Init` and `metrics.Init` so a non-partial `resource.New` error after `autoexport.NewSpanExporter` succeeded no longer leaks the exporter's transport (gRPC client, batch goroutine). Closes [#15](https://github.com/giantswarm/mcp-toolkit/issues/15).
+- `tracing.Init`: a non-partial `resource.New` error after `autoexport.NewSpanExporter` succeeded no longer leaks the exporter's transport (gRPC client, batch goroutine). Closes [#15](https://github.com/giantswarm/mcp-toolkit/issues/15).
 
 ## [0.1.0] - 2026-05-07
 
