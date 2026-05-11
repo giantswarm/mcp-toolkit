@@ -15,64 +15,71 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// Shutdown drains pending metric data. Idempotent: the no-exporter
-// branch returns a no-op closure and sdkmetric.MeterProvider.Shutdown
-// uses sync.Once internally.
+// Shutdown drains pending metric data. Idempotent.
 type Shutdown func(ctx context.Context) error
 
-// InitOptions configures the MeterProvider. ServiceName and
-// ServiceVersion are written as semconv attributes on the Resource
-// when non-empty; the standard OTEL_SERVICE_NAME /
-// OTEL_RESOURCE_ATTRIBUTES env vars override them.
-type InitOptions struct {
-	// ServiceName populates semconv.ServiceName on the MeterProvider's
-	// Resource. Empty lets OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES
-	// own service identity.
-	ServiceName string
-	// ServiceVersion populates semconv.ServiceVersion. There is no
-	// OTEL_SERVICE_VERSION env var; pass the build version here or in
-	// OTEL_RESOURCE_ATTRIBUTES.
-	ServiceVersion string
-	// Views customise per-instrument behaviour: rename, drop, change
-	// the aggregation, override histogram bucket boundaries, etc.
-	// Each view is appended to the MeterProvider in order.
-	//
-	// Common case — tune the duration histogram buckets for a tool
-	// that runs sub-millisecond:
-	//
-	//	sdkmetric.NewView(
-	//	    sdkmetric.Instrument{Name: "your.tool.duration"},
-	//	    sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-	//	        Boundaries: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
-	//	    }},
-	//	)
-	Views []sdkmetric.View
-	// ResourceOptions are appended to the toolkit's resource.New
-	// option list. Use to add extra attributes (deployment.environment,
-	// custom labels) or extra detectors (k8s, AWS, GCP). The toolkit's
-	// own options — semconv ServiceName/Version, Process, OS,
-	// Container, FromEnv — are applied first.
-	ResourceOptions []resource.Option
-	// ExemplarFilter overrides the default exemplar.TraceBasedFilter
-	// applied to the MeterProvider. Common overrides:
-	//
-	//   - exemplar.AlwaysOnFilter for local dev / tests where there
-	//     is no tracer but exemplars on every observation are useful
-	//     for debugging.
-	//   - exemplar.AlwaysOffFilter to disable exemplars entirely
-	//     when the metrics backend does not ingest them or exemplar
-	//     cardinality is a cost concern.
-	//   - a custom exemplar.Filter for application-specific
-	//     predicates (e.g. only attach exemplars to slow requests).
-	//
-	// There is no OTEL_METRICS_EXEMPLAR_FILTER env var in the OTel
-	// spec at v1.x, so configuration via this field is the only way
-	// to deviate from the default.
-	//
-	// Nil keeps exemplar.TraceBasedFilter: attach the active span's
-	// TraceID when the SpanContext is sampled. Suitable for
-	// production Grafana / Mimir + Tempo correlation.
-	ExemplarFilter exemplar.Filter
+// Option configures Init. The zero set of options leaves the SDK's
+// no-op MeterProvider in place when no exporter is configured via
+// OTEL_*.
+type Option func(*config)
+
+type config struct {
+	serviceName     string
+	serviceVersion  string
+	views           []sdkmetric.View
+	resourceOptions []resource.Option
+	exemplarFilter  exemplar.Filter
+}
+
+// WithServiceName sets semconv.ServiceName on the MeterProvider's
+// Resource. OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES take
+// precedence; empty leaves the env vars in charge.
+func WithServiceName(name string) Option {
+	return func(c *config) { c.serviceName = name }
+}
+
+// WithServiceVersion sets semconv.ServiceVersion. There is no
+// OTEL_SERVICE_VERSION env var; pass the build version here or in
+// OTEL_RESOURCE_ATTRIBUTES.
+func WithServiceVersion(version string) Option {
+	return func(c *config) { c.serviceVersion = version }
+}
+
+// WithViews appends sdkmetric.View values to the MeterProvider —
+// per-instrument customisation: rename, drop, change the aggregation,
+// override histogram bucket boundaries. Common case: narrower
+// histogram buckets for sub-millisecond tool durations.
+func WithViews(views ...sdkmetric.View) Option {
+	return func(c *config) { c.views = append(c.views, views...) }
+}
+
+// WithResourceOptions appends resource.Option values to the toolkit's
+// resource.New option list. Use to add extra attributes
+// (deployment.environment, custom labels) or detectors (k8s, AWS,
+// GCP). The toolkit's own options — semconv ServiceName/Version,
+// Process, OS, Container, FromEnv — are applied first; caller-supplied
+// options follow.
+func WithResourceOptions(opts ...resource.Option) Option {
+	return func(c *config) { c.resourceOptions = append(c.resourceOptions, opts...) }
+}
+
+// WithExemplarFilter overrides the default exemplar.TraceBasedFilter
+// applied to the MeterProvider. Common overrides:
+//
+//   - exemplar.AlwaysOnFilter for local dev / tests where there is no
+//     tracer but exemplars on every observation are useful for
+//     debugging.
+//   - exemplar.AlwaysOffFilter to disable exemplars entirely when the
+//     metrics backend does not ingest them or exemplar cardinality is
+//     a cost concern.
+//   - a custom exemplar.Filter for application-specific predicates
+//     (e.g. only attach exemplars to slow requests).
+//
+// There is no OTEL_METRICS_EXEMPLAR_FILTER env var in the OTel spec
+// at v1.x, so this option is the only way to deviate from the
+// default.
+func WithExemplarFilter(filter exemplar.Filter) Option {
+	return func(c *config) { c.exemplarFilter = filter }
 }
 
 // Init installs the global OpenTelemetry MeterProvider, selecting the
@@ -96,9 +103,13 @@ type InitOptions struct {
 // The MeterProvider is configured with exemplar.TraceBasedFilter by
 // default — the same value as the SDK default at v1.43.0, pinned
 // here to insulate consumers from future SDK drift. Override via
-// InitOptions.ExemplarFilter when the production-correlation default
-// is wrong for the deployment.
-func Init(ctx context.Context, opts InitOptions) (Shutdown, error) {
+// WithExemplarFilter when the production-correlation default is wrong
+// for the deployment.
+func Init(ctx context.Context, opts ...Option) (Shutdown, error) {
+	c := config{}
+	for _, opt := range opts {
+		opt(&c)
+	}
 	if !metricsConfigured() {
 		return func(context.Context) error { return nil }, nil
 	}
@@ -107,17 +118,13 @@ func Init(ctx context.Context, opts InitOptions) (Shutdown, error) {
 	if err != nil {
 		return nil, fmt.Errorf("otel metric reader: %w", err)
 	}
-	return initWithReader(ctx, reader, opts)
+	return initWithReader(ctx, reader, c)
 }
 
 // initWithReader constructs the MeterProvider against an explicit
 // Reader. The seam exists so the Reader is a parameter rather than a
 // hidden side effect of autoexport reading the environment.
-func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptions) (Shutdown, error) {
-	// Hand reader ownership to the MeterProvider on success; on any
-	// error before that handover we must shut it down ourselves or
-	// leak its underlying transport (Prometheus HTTP server, OTLP
-	// gRPC client).
+func initWithReader(ctx context.Context, reader sdkmetric.Reader, c config) (Shutdown, error) {
 	readerOwned := false
 	defer func() {
 		if readerOwned {
@@ -126,7 +133,7 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 		_ = reader.Shutdown(ctx)
 	}()
 
-	res, err := buildResource(ctx, opts)
+	res, err := buildResource(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +142,7 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 	// but the godoc on WithExemplarFilter reads "SampledFilter".
 	// Pinning insulates consumers from default drift if upstream
 	// resolves that disagreement in either direction.
-	exemplarFilter := opts.ExemplarFilter
+	exemplarFilter := c.exemplarFilter
 	if exemplarFilter == nil {
 		exemplarFilter = exemplar.TraceBasedFilter
 	}
@@ -144,7 +151,7 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 		sdkmetric.WithResource(res),
 		sdkmetric.WithExemplarFilter(exemplarFilter),
 	}
-	for _, v := range opts.Views {
+	for _, v := range c.views {
 		mpOpts = append(mpOpts, sdkmetric.WithView(v))
 	}
 	mp := sdkmetric.NewMeterProvider(mpOpts...)
@@ -155,13 +162,13 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 
 // buildResource composes the SDK Resource for the MeterProvider.
 // Toolkit defaults run first; caller-supplied ResourceOptions follow.
-func buildResource(ctx context.Context, opts InitOptions) (*resource.Resource, error) {
+func buildResource(ctx context.Context, c config) (*resource.Resource, error) {
 	var attrs []attribute.KeyValue
-	if opts.ServiceName != "" {
-		attrs = append(attrs, semconv.ServiceName(opts.ServiceName))
+	if c.serviceName != "" {
+		attrs = append(attrs, semconv.ServiceName(c.serviceName))
 	}
-	if opts.ServiceVersion != "" {
-		attrs = append(attrs, semconv.ServiceVersion(opts.ServiceVersion))
+	if c.serviceVersion != "" {
+		attrs = append(attrs, semconv.ServiceVersion(c.serviceVersion))
 	}
 	resourceOpts := []resource.Option{
 		resource.WithAttributes(attrs...),
@@ -170,7 +177,7 @@ func buildResource(ctx context.Context, opts InitOptions) (*resource.Resource, e
 		resource.WithContainer(),
 		resource.WithFromEnv(),
 	}
-	resourceOpts = append(resourceOpts, opts.ResourceOptions...)
+	resourceOpts = append(resourceOpts, c.resourceOptions...)
 	res, err := resource.New(ctx, resourceOpts...)
 	if err != nil && !errors.Is(err, resource.ErrPartialResource) {
 		return nil, fmt.Errorf("otel resource: %w", err)

@@ -46,9 +46,9 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 	// Inject a ManualReader so we can collect synchronously without
 	// touching the network.
 	reader := sdkmetric.NewManualReader()
-	shutdown, err := initWithReader(t.Context(), reader, InitOptions{
-		ServiceName:    "test-service",
-		ServiceVersion: "0.0.0-test",
+	shutdown, err := initWithReader(t.Context(), reader, config{
+		serviceName:    "test-service",
+		serviceVersion: "0.0.0-test",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
@@ -98,9 +98,9 @@ func TestInitWithReader_ExemplarFilter_AlwaysOff(t *testing.T) {
 	otel.SetTracerProvider(tp)
 
 	reader := sdkmetric.NewManualReader()
-	shutdown, err := initWithReader(t.Context(), reader, InitOptions{
-		ServiceName:    "test-service",
-		ExemplarFilter: exemplar.AlwaysOffFilter,
+	shutdown, err := initWithReader(t.Context(), reader, config{
+		serviceName:    "test-service",
+		exemplarFilter: exemplar.AlwaysOffFilter,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })

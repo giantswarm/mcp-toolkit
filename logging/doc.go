@@ -14,11 +14,11 @@
 // Grafana. The Shutdown returned by Init drains the provider on
 // graceful exit; in non-OTLP mode it is a no-op closure.
 //
-// InitOptions.ExtraHandlers attaches additional slog.Handler sinks
-// alongside the env-selected primary. Every record reaches the
-// primary and each extra, in either OTLP or non-OTLP mode — the
-// pattern for "OTLP for Loki plus stderr for kubectl logs" is one
-// JSON-on-os.Stderr handler in ExtraHandlers.
+// WithExtraHandlers attaches additional slog.Handler sinks alongside
+// the env-selected primary. Every record reaches the primary and each
+// extra, in either OTLP or non-OTLP mode — the pattern for "OTLP for
+// Loki plus stderr for kubectl logs" is one JSON-on-os.Stderr handler
+// passed through WithExtraHandlers.
 //
 // Trace correlation differs between the primary and extras: the OTel
 // logs SDK attaches SpanContext to its native LogRecord struct as
@@ -30,9 +30,7 @@
 // it on extras that need correlation:
 //
 //	stderr := logging.WithTraceContextAttrs(slog.NewJSONHandler(os.Stderr, nil))
-//	logging.Init(ctx, logging.InitOptions{
-//	    ExtraHandlers: []slog.Handler{stderr},
-//	})
+//	logging.Init(ctx, logging.WithExtraHandlers(stderr))
 //
 // RedactHost scrubs IP addresses and URL userinfo before they land in
 // logs. It is the only redaction primitive in this package because

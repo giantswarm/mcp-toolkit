@@ -33,7 +33,8 @@ More to follow as they get extracted from real consumers.
 
 ## Usage
 
-Each module has its own package documentation. The general shape:
+Each module has its own package documentation. Middleware modules use
+the mcp-go convention:
 
 ```go
 import (
@@ -44,6 +45,45 @@ import (
 s := mcpserver.NewMCPServer("my-mcp", "1.0.0")
 s.Use(responsecap.New(responsecap.Options{Limit: 128 << 10}))
 ```
+
+The OTel signal `Init` helpers — `tracing.Init`, `metrics.Init`,
+`logging.Init` — share a functional-options API. The common shape is
+one call per signal at the service composition root, with each option
+opting into a specific OTel SDK knob:
+
+```go
+import (
+    "github.com/giantswarm/mcp-toolkit/logging"
+    "github.com/giantswarm/mcp-toolkit/metrics"
+    "github.com/giantswarm/mcp-toolkit/tracing"
+)
+
+ctx := context.Background()
+
+shutdownTracing, err := tracing.Init(ctx,
+    tracing.WithServiceName("my-mcp"),
+    tracing.WithServiceVersion("1.2.3"),
+)
+// handle err; defer shutdownTracing(ctx)
+
+shutdownMetrics, err := metrics.Init(ctx,
+    metrics.WithServiceName("my-mcp"),
+    metrics.WithServiceVersion("1.2.3"),
+)
+// handle err; defer shutdownMetrics(ctx)
+
+handler, shutdownLogging, err := logging.Init(ctx,
+    logging.WithServiceName("my-mcp"),
+    logging.WithServiceVersion("1.2.3"),
+    logging.WithLoggerName("github.com/your/repo"),
+)
+// handle err; defer shutdownLogging(ctx); slog.SetDefault(slog.New(handler))
+```
+
+Override knobs are package-local `Option` functions: `tracing.WithSampler`,
+`tracing.WithPropagators`, `metrics.WithViews`, `metrics.WithExemplarFilter`,
+`logging.WithExtraHandlers`, etc. Each package's runnable `Example_*`
+functions show idiomatic combinations.
 
 ## Contributing
 

@@ -14,10 +14,10 @@ import (
 // no OpenTelemetry plumbing. Use this for CLI tools, test harnesses,
 // and any code that doesn't need OTLP export.
 func ExampleNew() {
-	l := logging.New(logging.Options{
-		Level:  slog.LevelInfo,
-		Output: os.Stderr,
-	})
+	l := logging.New(
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithOutput(os.Stderr),
+	)
 	l.Info("starting", "component", "auth")
 }
 
@@ -26,12 +26,12 @@ func ExampleNew() {
 // operator sets OTEL_EXPORTER_OTLP_LOGS_ENDPOINT or
 // OTEL_LOGS_EXPORTER, otherwise fall back to JSON-on-stderr.
 func ExampleInit_basic() {
-	handler, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options:        logging.Options{Level: slog.LevelInfo},
-		LoggerName:     "github.com/giantswarm/your-mcp",
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-	})
+	handler, shutdown, err := logging.Init(context.Background(),
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
+		logging.WithServiceName("your-mcp"),
+		logging.WithServiceVersion("1.2.3"),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -63,15 +63,13 @@ func ExampleInit_otlpWithStderrMirror() {
 			Level: slog.LevelInfo,
 		}),
 	)
-	handler, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options:        logging.Options{Level: slog.LevelInfo},
-		LoggerName:     "github.com/giantswarm/your-mcp",
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-		ExtraHandlers: []slog.Handler{
-			stderrHandler,
-		},
-	})
+	handler, shutdown, err := logging.Init(context.Background(),
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
+		logging.WithServiceName("your-mcp"),
+		logging.WithServiceVersion("1.2.3"),
+		logging.WithExtraHandlers(stderrHandler),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -90,15 +88,13 @@ func ExampleInit_warningOnlyExtra() {
 	warningHandler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
 	})
-	handler, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options:        logging.Options{Level: slog.LevelInfo},
-		LoggerName:     "github.com/giantswarm/your-mcp",
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-		ExtraHandlers: []slog.Handler{
-			warningHandler,
-		},
-	})
+	handler, shutdown, err := logging.Init(context.Background(),
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
+		logging.WithServiceName("your-mcp"),
+		logging.WithServiceVersion("1.2.3"),
+		logging.WithExtraHandlers(warningHandler),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -126,15 +122,13 @@ func ExampleInit_fileAuditLog() {
 	auditHandler := slog.NewJSONHandler(auditFile, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
-	handler, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options:        logging.Options{Level: slog.LevelInfo},
-		LoggerName:     "github.com/giantswarm/your-mcp",
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-		ExtraHandlers: []slog.Handler{
-			auditHandler,
-		},
-	})
+	handler, shutdown, err := logging.Init(context.Background(),
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithLoggerName("github.com/giantswarm/your-mcp"),
+		logging.WithServiceName("your-mcp"),
+		logging.WithServiceVersion("1.2.3"),
+		logging.WithExtraHandlers(auditHandler),
+	)
 	if err != nil {
 		panic(err)
 	}

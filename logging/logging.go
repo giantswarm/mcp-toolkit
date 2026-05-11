@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -22,22 +23,90 @@ const (
 	FormatJSON
 )
 
-// Options configures New. The zero value is usable: it produces a
+// Option configures New and Init. The zero set of options produces a
 // logger writing to os.Stderr at slog.LevelInfo with auto-detected
 // format.
-type Options struct {
-	// Format selects the handler. Zero value FormatAuto resolves to
-	// JSON inside Kubernetes, text otherwise.
-	Format Format
-	// Level is the minimum slog level emitted. Zero value is
-	// slog.LevelInfo.
-	Level slog.Level
-	// Output is where log records are written. Nil means os.Stderr.
-	Output io.Writer
+type Option func(*config)
+
+type config struct {
+	format                Format
+	level                 slog.Level
+	output                io.Writer
+	loggerName            string
+	serviceName           string
+	serviceVersion        string
+	extraHandlers         []slog.Handler
+	resourceOptions       []resourceOpt
+	batchProcessorOptions []batchOpt
+}
+
+// WithFormat overrides FormatAuto. Use FormatText to force text on a
+// pod-deployed binary (rare), or FormatJSON to force JSON in local
+// dev.
+func WithFormat(f Format) Option {
+	return func(c *config) { c.format = f }
+}
+
+// WithLevel sets the minimum slog level emitted by the non-OTLP
+// handler. Defaults to slog.LevelInfo. OTLP mode is not affected —
+// otelslog.Handler.Enabled defers to the LoggerProvider; configure
+// OTLP-side filtering via the OTel SDK.
+func WithLevel(level slog.Level) Option {
+	return func(c *config) { c.level = level }
+}
+
+// WithOutput sets the io.Writer that the non-OTLP handler writes to.
+// Nil and unset both mean os.Stderr.
+func WithOutput(w io.Writer) Option {
+	return func(c *config) { c.output = w }
+}
+
+// WithLoggerName identifies the instrumentation scope on emitted OTel
+// LogRecords (OTel SDK's InstrumentationScope.Name). Conventionally
+// the importing module path, e.g. "github.com/giantswarm/muster".
+// Empty falls back to the LoggerProvider's default scope name, which
+// is rarely useful as a Loki filter. OTLP mode only.
+func WithLoggerName(name string) Option {
+	return func(c *config) { c.loggerName = name }
+}
+
+// WithServiceName sets semconv.ServiceName on the OTLP LoggerProvider's
+// Resource. OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES take
+// precedence. OTLP mode only.
+func WithServiceName(name string) Option {
+	return func(c *config) { c.serviceName = name }
+}
+
+// WithServiceVersion sets semconv.ServiceVersion on the OTLP
+// LoggerProvider's Resource. There is no OTEL_SERVICE_VERSION env
+// var; pass the build version here or in OTEL_RESOURCE_ATTRIBUTES.
+// OTLP mode only.
+func WithServiceVersion(version string) Option {
+	return func(c *config) { c.serviceVersion = version }
+}
+
+// WithExtraHandlers attaches additional slog.Handler sinks that
+// receive every log record alongside the env-selected primary
+// handler. Use them to mirror records to additional sinks — e.g. a
+// JSON handler on os.Stderr kept on top of OTLP for `kubectl logs`
+// debugging, a file handler for an audit trail, or a secondary OTel
+// collector bridge. Each handler's Enabled is checked per record so
+// extras can filter independently of the primary's level.
+//
+// ExtraHandlers' lifecycles are the caller's responsibility — the
+// Shutdown returned by Init does not close them. Pass handlers over
+// io.Writers that the caller owns (os.Stderr, an open *os.File)
+// rather than ones that need closing.
+//
+// Stdlib slog handlers (JSONHandler, TextHandler) ignore ctx for
+// trace data. Wrap an extra with WithTraceContextAttrs to inject
+// trace_id / span_id from the active SpanContext on each record.
+func WithExtraHandlers(handlers ...slog.Handler) Option {
+	return func(c *config) { c.extraHandlers = append(c.extraHandlers, handlers...) }
 }
 
 // New returns an *slog.Logger configured per opts. The handler is the
-// text/JSON one selected by opts.Format — New is the right call for
+// text/JSON one selected by WithFormat — New is the right call for
 // CLI tools, tests, and any code path that does not need OpenTelemetry
 // logs.
 //
@@ -45,8 +114,34 @@ type Options struct {
 // lifecycle, use Init: it returns the slog.Handler plus a Shutdown
 // closure and delegates handler construction here in the non-OTLP
 // path.
-func New(opts Options) *slog.Logger {
-	return slog.New(baseHandler(opts))
+func New(opts ...Option) *slog.Logger {
+	c := config{}
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return slog.New(compose(baseHandler(c), c.extraHandlers))
+}
+
+// baseHandler builds the text/JSON slog handler. Single source of
+// FormatAuto detection in the package.
+func baseHandler(c config) slog.Handler {
+	out := c.output
+	if out == nil {
+		out = os.Stderr
+	}
+	format := c.format
+	if format == FormatAuto {
+		if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+			format = FormatJSON
+		} else {
+			format = FormatText
+		}
+	}
+	hopts := &slog.HandlerOptions{Level: c.level}
+	if format == FormatJSON {
+		return slog.NewJSONHandler(out, hopts)
+	}
+	return slog.NewTextHandler(out, hopts)
 }
 
 const redactedIP = "<redacted-ip>"

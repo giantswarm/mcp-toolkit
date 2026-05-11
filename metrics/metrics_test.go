@@ -11,9 +11,7 @@ import (
 )
 
 // restoreGlobalMeterProvider snapshots the global OTel MeterProvider
-// and restores it on cleanup. Init in OTLP mode mutates the global;
-// without restore, the first test that hits that path leaves a stub
-// provider installed for every test that follows.
+// and restores it on cleanup.
 func restoreGlobalMeterProvider(t *testing.T) {
 	t.Helper()
 	prev := otel.GetMeterProvider()
@@ -25,7 +23,7 @@ func TestInit_NoEnv_ReturnsNoopShutdown(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_METRICS_EXPORTER", "")
 
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{})
+	shutdown, err := metrics.Init(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	require.NoError(t, shutdown(context.Background()))
@@ -36,10 +34,10 @@ func TestInit_ConsoleExporter(t *testing.T) {
 	restoreGlobalMeterProvider(t)
 	t.Setenv("OTEL_METRICS_EXPORTER", "console")
 
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName:    "test-service",
-		ServiceVersion: "0.0.0-test",
-	})
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("test-service"),
+		metrics.WithServiceVersion("0.0.0-test"),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
@@ -47,16 +45,13 @@ func TestInit_ConsoleExporter(t *testing.T) {
 
 func TestInit_NoneExporter_ReturnsRealShutdown(t *testing.T) {
 	restoreGlobalMeterProvider(t)
-	// OTEL_METRICS_EXPORTER=none exercises the OTLP-mode code path
-	// (autoexport returns a no-op reader, but Init still installs a
-	// real MeterProvider, sets the global, and returns its Shutdown).
 	t.Setenv("OTEL_METRICS_EXPORTER", "none")
 	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName: "test-service",
-	})
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("test-service"),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
 	require.NoError(t, shutdown(context.Background()))

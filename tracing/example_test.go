@@ -13,10 +13,10 @@ import (
 
 // ExampleInit_basic shows the typical service composition root.
 func ExampleInit_basic() {
-	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-	})
+	shutdown, err := tracing.Init(context.Background(),
+		tracing.WithServiceName("your-mcp"),
+		tracing.WithServiceVersion("1.2.3"),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -27,17 +27,17 @@ func ExampleInit_basic() {
 // propagator alongside the W3C TraceContext + Baggage — typical when
 // interoperating with services that emit B3 (via
 // go.opentelemetry.io/contrib/propagators/b3) or Jaeger headers. The
-// Propagators slice replaces the default composite, so include every
-// propagator the service should support.
+// WithPropagators option replaces the default composite, so include
+// every propagator the service should support.
 func ExampleInit_customPropagators() {
-	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{
-		ServiceName: "your-mcp",
-		Propagators: []propagation.TextMapPropagator{
+	shutdown, err := tracing.Init(context.Background(),
+		tracing.WithServiceName("your-mcp"),
+		tracing.WithPropagators(
 			propagation.TraceContext{},
 			propagation.Baggage{},
 			// b3.New(), // add when go.opentelemetry.io/contrib/propagators/b3 is imported
-		},
-	})
+		),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -48,10 +48,10 @@ func ExampleInit_customPropagators() {
 // services with high request rates often drop the default
 // AlwaysSample to keep span volume manageable.
 func ExampleInit_headSampling() {
-	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{
-		ServiceName: "your-mcp",
-		Sampler:     sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1)), // 10% head sample
-	})
+	shutdown, err := tracing.Init(context.Background(),
+		tracing.WithServiceName("your-mcp"),
+		tracing.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1))),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -62,16 +62,14 @@ func ExampleInit_headSampling() {
 // deployment-specific attributes (environment, cluster, region) to
 // every emitted span without going through OTEL_RESOURCE_ATTRIBUTES.
 func ExampleInit_extraResourceAttributes() {
-	shutdown, err := tracing.Init(context.Background(), tracing.InitOptions{
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-		ResourceOptions: []resource.Option{
-			resource.WithAttributes(
-				attribute.String("deployment.environment", "production"),
-				attribute.String("cluster.name", "glean"),
-			),
-		},
-	})
+	shutdown, err := tracing.Init(context.Background(),
+		tracing.WithServiceName("your-mcp"),
+		tracing.WithServiceVersion("1.2.3"),
+		tracing.WithResourceOptions(resource.WithAttributes(
+			attribute.String("deployment.environment", "production"),
+			attribute.String("cluster.name", "glean"),
+		)),
+	)
 	if err != nil {
 		panic(err)
 	}

@@ -13,10 +13,10 @@ import (
 
 // ExampleInit_basic shows the typical service composition root.
 func ExampleInit_basic() {
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-	})
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("your-mcp"),
+		metrics.WithServiceVersion("1.2.3"),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -29,10 +29,10 @@ func ExampleInit_basic() {
 // (exemplar.TraceBasedFilter) only attaches exemplars when the
 // active SpanContext is sampled.
 func ExampleInit_alwaysOnExemplars() {
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName:    "your-mcp",
-		ExemplarFilter: exemplar.AlwaysOnFilter,
-	})
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("your-mcp"),
+		metrics.WithExemplarFilter(exemplar.AlwaysOnFilter),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -45,19 +45,17 @@ func ExampleInit_alwaysOnExemplars() {
 // services with sub-millisecond tool calls need narrower buckets to
 // resolve their distribution.
 func ExampleInit_customHistogramBuckets() {
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName: "your-mcp",
-		Views: []sdkmetric.View{
-			sdkmetric.NewView(
-				sdkmetric.Instrument{Name: "your.tool.duration"},
-				sdkmetric.Stream{
-					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-						Boundaries: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
-					},
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("your-mcp"),
+		metrics.WithViews(sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "your.tool.duration"},
+			sdkmetric.Stream{
+				Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+					Boundaries: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
 				},
-			),
-		},
-	})
+			},
+		)),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -68,16 +66,14 @@ func ExampleInit_customHistogramBuckets() {
 // deployment-specific attributes to every emitted metric without
 // going through OTEL_RESOURCE_ATTRIBUTES.
 func ExampleInit_extraResourceAttributes() {
-	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
-		ServiceName:    "your-mcp",
-		ServiceVersion: "1.2.3",
-		ResourceOptions: []resource.Option{
-			resource.WithAttributes(
-				attribute.String("deployment.environment", "production"),
-				attribute.String("cluster.name", "glean"),
-			),
-		},
-	})
+	shutdown, err := metrics.Init(context.Background(),
+		metrics.WithServiceName("your-mcp"),
+		metrics.WithServiceVersion("1.2.3"),
+		metrics.WithResourceOptions(resource.WithAttributes(
+			attribute.String("deployment.environment", "production"),
+			attribute.String("cluster.name", "glean"),
+		)),
+	)
 	if err != nil {
 		panic(err)
 	}

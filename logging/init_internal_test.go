@@ -73,10 +73,10 @@ func TestInitWithExporter_ExtraHandlersReceiveRecords(t *testing.T) {
 
 	exp := &captureExporter{}
 	extra := &extraSink{}
-	handler, shutdown, err := initWithExporter(t.Context(), exp, InitOptions{
-		LoggerName:    "github.com/giantswarm/mcp-toolkit/logging/test",
-		ServiceName:   "muster",
-		ExtraHandlers: []slog.Handler{extra},
+	handler, shutdown, err := initWithExporter(t.Context(), exp, config{
+		loggerName:    "github.com/giantswarm/mcp-toolkit/logging/test",
+		serviceName:   "muster",
+		extraHandlers: []slog.Handler{extra},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
@@ -94,10 +94,10 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	restoreGlobalLoggerProvider(t)
 
 	exp := &captureExporter{}
-	handler, shutdown, err := initWithExporter(t.Context(), exp, InitOptions{
-		LoggerName:     "github.com/giantswarm/mcp-toolkit/logging/test",
-		ServiceName:    "muster",
-		ServiceVersion: "1.2.3-test",
+	handler, shutdown, err := initWithExporter(t.Context(), exp, config{
+		loggerName:     "github.com/giantswarm/mcp-toolkit/logging/test",
+		serviceName:    "muster",
+		serviceVersion: "1.2.3-test",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })

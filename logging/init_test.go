@@ -14,9 +14,7 @@ import (
 )
 
 // restoreGlobalLoggerProvider snapshots the global OTel LoggerProvider
-// and restores it on cleanup. Init in OTLP mode mutates the global;
-// without restore, the first test that hits that path leaves a stub
-// provider installed for every test that follows.
+// and restores it on cleanup. Init in OTLP mode mutates the global.
 func restoreGlobalLoggerProvider(t *testing.T) {
 	t.Helper()
 	prev := global.GetLoggerProvider()
@@ -30,9 +28,10 @@ func TestInit_NoEnv_TextOutput(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 
 	var buf bytes.Buffer
-	h, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options: logging.Options{Format: logging.FormatText, Output: &buf},
-	})
+	h, shutdown, err := logging.Init(context.Background(),
+		logging.WithFormat(logging.FormatText),
+		logging.WithOutput(&buf),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, h)
 	require.NotNil(t, shutdown)
@@ -50,9 +49,7 @@ func TestInit_AutoFormat_JSONInsideKubernetes(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
 
 	var buf bytes.Buffer
-	h, _, err := logging.Init(context.Background(), logging.InitOptions{
-		Options: logging.Options{Output: &buf},
-	})
+	h, _, err := logging.Init(context.Background(), logging.WithOutput(&buf))
 	require.NoError(t, err)
 
 	slog.New(h).Info("hello", "k", "v")
@@ -69,16 +66,13 @@ func TestInit_OTLP_NoneExporter_ReturnsShutdown(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
-	h, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
-		Options:        logging.Options{},
-		ServiceName:    "test-service",
-		ServiceVersion: "0.0.0-test",
-	})
+	h, shutdown, err := logging.Init(context.Background(),
+		logging.WithServiceName("test-service"),
+		logging.WithServiceVersion("0.0.0-test"),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, h)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
-	// Use the handler — emission must not panic and the OTel pipeline
-	// must accept the record.
 	slog.New(h).Info("hello", "k", "v")
 }

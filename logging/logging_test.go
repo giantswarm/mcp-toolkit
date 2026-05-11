@@ -13,7 +13,7 @@ import (
 
 func TestNew_TextFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{Format: logging.FormatText, Output: &buf})
+	l := logging.New(logging.WithFormat(logging.FormatText), logging.WithOutput(&buf))
 	l.Info("hello", "k", "v")
 	out := buf.String()
 	require.Contains(t, out, `msg=hello`)
@@ -23,7 +23,7 @@ func TestNew_TextFormat(t *testing.T) {
 
 func TestNew_JSONFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{Format: logging.FormatJSON, Output: &buf})
+	l := logging.New(logging.WithFormat(logging.FormatJSON), logging.WithOutput(&buf))
 	l.Info("hello", "k", "v")
 
 	var rec map[string]any
@@ -35,11 +35,11 @@ func TestNew_JSONFormat(t *testing.T) {
 
 func TestNew_LevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{
-		Format: logging.FormatText,
-		Level:  slog.LevelWarn,
-		Output: &buf,
-	})
+	l := logging.New(
+		logging.WithFormat(logging.FormatText),
+		logging.WithLevel(slog.LevelWarn),
+		logging.WithOutput(&buf),
+	)
 	l.Info("muted")
 	l.Warn("audible")
 	out := buf.String()
@@ -50,7 +50,7 @@ func TestNew_LevelFiltering(t *testing.T) {
 func TestNew_AutoPicksJSONInsideKubernetes(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{Output: &buf})
+	l := logging.New(logging.WithOutput(&buf))
 	l.Info("hello")
 	require.True(t, json.Valid(buf.Bytes()), "expected JSON output: %s", buf.String())
 }
@@ -58,18 +58,18 @@ func TestNew_AutoPicksJSONInsideKubernetes(t *testing.T) {
 func TestNew_AutoPicksTextOutsideKubernetes(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	var buf bytes.Buffer
-	l := logging.New(logging.Options{Output: &buf})
+	l := logging.New(logging.WithOutput(&buf))
 	l.Info("hello")
 	require.Contains(t, buf.String(), "msg=hello")
 	require.False(t, json.Valid(buf.Bytes()))
 }
 
-func TestNew_ZeroOptionsDoesNotPanic(t *testing.T) {
+func TestNew_NoOptionsDoesNotPanic(t *testing.T) {
 	// Output nil → os.Stderr, Format zero → FormatAuto, Level zero
 	// → slog.LevelInfo. Capturing stderr would leak across tests, so
-	// we just confirm the constructor accepts the zero value and
-	// returns a usable logger.
-	l := logging.New(logging.Options{})
+	// we just confirm the constructor accepts no options and returns
+	// a usable logger.
+	l := logging.New()
 	require.NotNil(t, l)
 }
 
