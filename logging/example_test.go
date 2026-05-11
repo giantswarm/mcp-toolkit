@@ -47,14 +47,22 @@ func ExampleInit_basic() {
 // alive so an operator running `kubectl logs your-pod` still sees
 // log lines without round-tripping through the collector.
 //
+// The stderr handler is wrapped in WithTraceContextAttrs so the
+// emitted records carry trace_id and span_id slog.Attrs — the OTLP
+// primary attaches SpanContext to its native OTel LogRecord, but a
+// plain JSONHandler does not read ctx for trace data. Wrapping it
+// gives the stderr stream the same correlation surface Loki gets.
+//
 // In the non-OTLP fallback the primary handler is already writing to
 // stderr; the extra handler doubles the stream, which is usually
 // undesired in local dev. Gate the extra on a build flag or env var
 // if both modes share a single bootstrap.
 func ExampleInit_otlpWithStderrMirror() {
-	stderrHandler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
+	stderrHandler := logging.WithTraceContextAttrs(
+		slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}),
+	)
 	handler, shutdown, err := logging.Init(context.Background(), logging.InitOptions{
 		Options:        logging.Options{Level: slog.LevelInfo},
 		LoggerName:     "github.com/giantswarm/your-mcp",
