@@ -14,11 +14,14 @@
 // Grafana. The Shutdown returned by Init drains the provider on
 // graceful exit; in non-OTLP mode it is a no-op closure.
 //
-// The OTLP path is the sole sink in OTLP mode — nothing flows to
-// stderr/JSON. If a deployment needs both OTLP delivery and a
-// stderr-scraped log stream the caller must compose a fan-out
-// slog.Handler that tees the records; the toolkit's stance is
-// single-pipeline-per-signal.
+// InitOptions.ExtraHandlers attaches additional slog.Handler sinks
+// alongside the env-selected primary. Every record reaches the
+// primary and each extra, in either OTLP or non-OTLP mode — the
+// pattern for "OTLP for Loki plus stderr for kubectl logs" is one
+// JSON-on-os.Stderr handler in ExtraHandlers. The extras receive the
+// original slog.Record; the TraceID and SpanID that the primary
+// OTLP pipeline attaches via the otelslog bridge are not visible to
+// the extras unless the call site also adds them as slog.Attrs.
 //
 // RedactHost scrubs IP addresses and URL userinfo before they land in
 // logs. It is the only redaction primitive in this package because

@@ -8,9 +8,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/log/global"
 
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
+
+// restoreGlobalLoggerProvider snapshots the global OTel LoggerProvider
+// and restores it on cleanup. Init in OTLP mode mutates the global;
+// without restore, the first test that hits that path leaves a stub
+// provider installed for every test that follows.
+func restoreGlobalLoggerProvider(t *testing.T) {
+	t.Helper()
+	prev := global.GetLoggerProvider()
+	t.Cleanup(func() { global.SetLoggerProvider(prev) })
+}
 
 func TestInit_NoEnv_TextOutput(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
@@ -51,6 +62,7 @@ func TestInit_AutoFormat_JSONInsideKubernetes(t *testing.T) {
 }
 
 func TestInit_OTLP_NoneExporter_ReturnsShutdown(t *testing.T) {
+	restoreGlobalLoggerProvider(t)
 	// "none" is the no-op autoexport exporter — selects the OTLP code
 	// path without actually attempting a network connection.
 	t.Setenv("OTEL_LOGS_EXPORTER", "none")

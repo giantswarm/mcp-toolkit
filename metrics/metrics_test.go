@@ -5,9 +5,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 
 	"github.com/giantswarm/mcp-toolkit/metrics"
 )
+
+// restoreGlobalMeterProvider snapshots the global OTel MeterProvider
+// and restores it on cleanup. Init in OTLP mode mutates the global;
+// without restore, the first test that hits that path leaves a stub
+// provider installed for every test that follows.
+func restoreGlobalMeterProvider(t *testing.T) {
+	t.Helper()
+	prev := otel.GetMeterProvider()
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+}
 
 func TestInit_NoEnv_ReturnsNoopShutdown(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
@@ -22,6 +33,7 @@ func TestInit_NoEnv_ReturnsNoopShutdown(t *testing.T) {
 }
 
 func TestInit_ConsoleExporter(t *testing.T) {
+	restoreGlobalMeterProvider(t)
 	t.Setenv("OTEL_METRICS_EXPORTER", "console")
 
 	shutdown, err := metrics.Init(context.Background(), metrics.InitOptions{
@@ -34,6 +46,7 @@ func TestInit_ConsoleExporter(t *testing.T) {
 }
 
 func TestInit_NoneExporter_ReturnsRealShutdown(t *testing.T) {
+	restoreGlobalMeterProvider(t)
 	// OTEL_METRICS_EXPORTER=none exercises the OTLP-mode code path
 	// (autoexport returns a no-op reader, but Init still installs a
 	// real MeterProvider, sets the global, and returns its Shutdown).

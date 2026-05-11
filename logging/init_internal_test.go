@@ -12,10 +12,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// captureExporter is an sdklog.Exporter that records every Record it
-// receives. The Shutdown / ForceFlush implementations are intentionally
-// minimal — production-facing concerns (retry, deadline) belong on the
-// real OTLP exporter, not here. The zero value is usable.
+// captureExporter records every Record it receives. The zero value is
+// usable; Shutdown and ForceFlush are no-ops.
 type captureExporter struct {
 	mu      sync.Mutex
 	records []sdklog.Record
@@ -49,6 +47,47 @@ func restoreGlobalLoggerProvider(t *testing.T) {
 	t.Helper()
 	prev := global.GetLoggerProvider()
 	t.Cleanup(func() { global.SetLoggerProvider(prev) })
+}
+
+// extraSink is a slog.Handler that records every record it sees as
+// (level, message) tuples. Just enough to assert dispatch in tests.
+type extraSink struct{ records []extraRecord }
+
+type extraRecord struct {
+	level slog.Level
+	msg   string
+}
+
+func (s *extraSink) Enabled(context.Context, slog.Level) bool { return true }
+
+func (s *extraSink) Handle(_ context.Context, r slog.Record) error {
+	s.records = append(s.records, extraRecord{level: r.Level, msg: r.Message})
+	return nil
+}
+
+func (s *extraSink) WithAttrs([]slog.Attr) slog.Handler { return s }
+func (s *extraSink) WithGroup(string) slog.Handler      { return s }
+
+func TestInitWithExporter_ExtraHandlersReceiveRecords(t *testing.T) {
+	restoreGlobalLoggerProvider(t)
+
+	exp := &captureExporter{}
+	extra := &extraSink{}
+	handler, shutdown, err := initWithExporter(t.Context(), exp, InitOptions{
+		LoggerName:    "github.com/giantswarm/mcp-toolkit/logging/test",
+		ServiceName:   "muster",
+		ExtraHandlers: []slog.Handler{extra},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+
+	slog.New(handler).Info("hello", "k", "v")
+	require.NoError(t, shutdown(context.Background()))
+
+	require.Len(t, exp.collected(), 1, "primary OTLP exporter must receive the record")
+	require.Len(t, extra.records, 1, "ExtraHandlers must receive the record in OTLP mode")
+	require.Equal(t, "hello", extra.records[0].msg)
+	require.Equal(t, slog.LevelInfo, extra.records[0].level)
 }
 
 func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing.T) {

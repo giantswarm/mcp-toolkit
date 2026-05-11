@@ -73,9 +73,7 @@ func Init(ctx context.Context, opts InitOptions) (Shutdown, error) {
 
 // initWithReader constructs the MeterProvider against an explicit
 // Reader. The seam exists so the Reader is a parameter rather than a
-// hidden side effect of autoexport reading the environment; the
-// package-internal test suite uses it to inject a ManualReader for
-// deterministic record capture.
+// hidden side effect of autoexport reading the environment.
 func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptions) (Shutdown, error) {
 	// Hand reader ownership to the MeterProvider on success; on any
 	// error before that handover we must shut it down ourselves or
@@ -122,9 +120,7 @@ func initWithReader(ctx context.Context, reader sdkmetric.Reader, opts InitOptio
 }
 
 // metricsConfigured returns true when any of the standard OTEL metric
-// env vars opts in. Mirrors the shape of tracing.tracingConfigured
-// and logging.otlpLogsConfigured so the three signals follow the
-// same env-driven enable pattern.
+// env vars opts in.
 func metricsConfigured() bool {
 	return os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" ||
 		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||

@@ -128,8 +128,7 @@ func compose(primary slog.Handler, extras []slog.Handler) slog.Handler {
 // initWithExporter constructs the OTLP-mode handler against an
 // explicit Exporter. The seam exists so the exporter is a parameter
 // rather than a hidden side effect of autoexport reading the
-// environment; the package-internal test suite uses it to inject a
-// record-capturing Exporter.
+// environment.
 func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions) (slog.Handler, Shutdown, error) {
 	// Hand exp ownership to the LoggerProvider on success; on any
 	// error before that handover we must shut it down ourselves or
@@ -166,14 +165,12 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, opts InitOptions
 	)
 	exporterOwned = true
 	global.SetLoggerProvider(lp)
-	return otelslog.NewHandler(opts.LoggerName,
-		otelslog.WithLoggerProvider(lp),
-	), lp.Shutdown, nil
+	primary := otelslog.NewHandler(opts.LoggerName, otelslog.WithLoggerProvider(lp))
+	return compose(primary, opts.ExtraHandlers), lp.Shutdown, nil
 }
 
-// baseHandler builds the text/JSON slog handler used by New and by
-// Init's non-OTLP path. Centralises the FormatAuto detection so the
-// two entry points cannot diverge.
+// baseHandler builds the text/JSON slog handler. Single source of
+// FormatAuto detection in the package.
 func baseHandler(opts Options) slog.Handler {
 	out := opts.Output
 	if out == nil {
@@ -197,9 +194,7 @@ func baseHandler(opts Options) slog.Handler {
 func noopShutdown(context.Context) error { return nil }
 
 // otlpLogsConfigured returns true when any of the standard OTEL log
-// env vars opts in. Mirrors tracing.tracingConfigured / the metric
-// equivalent in consumers, so the three signals follow the same
-// shape.
+// env vars opts in.
 func otlpLogsConfigured() bool {
 	return os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "" ||
 		os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
