@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
-	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
+	"github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
 // Shutdown drains the LoggerProvider on graceful exit. In non-OTLP
@@ -52,14 +53,19 @@ type Shutdown func(ctx context.Context) error
 //
 // Option applicability:
 //
-//   - WithFormat, WithOutput, WithLevel apply only to the non-OTLP
-//     primary handler. OTLP routes records to the LoggerProvider, not
-//     to a writer; the primary handler in OTLP mode is always
-//     otelslog.Handler, regardless of WithFormat. otelslog.Handler's
-//     Enabled defers to the OTel LoggerProvider, not to slog's Level
-//     filter; configure OTLP-side filtering via the OTel SDK.
+//   - WithFormat, WithOutput apply only to the non-OTLP primary
+//     handler. OTLP routes records to the LoggerProvider, not to a
+//     writer; the primary handler in OTLP mode is always
+//     otelslog.Handler, regardless of WithFormat.
+//   - WithLevel applies to the non-OTLP primary handler and to the
+//     stderr handler added by WithStderrMirror (when present).
+//     otelslog.Handler's Enabled defers to the OTel LoggerProvider,
+//     not to slog's Level filter; configure OTLP-side filtering via
+//     the OTel SDK.
 //   - WithLoggerName, WithServiceName, WithServiceVersion,
 //     WithResourceOptions apply only to OTLP mode.
+//   - WithStderrMirror requires OTLP mode and returns an error
+//     otherwise.
 //   - WithExtraHandlers applies in both modes.
 //
 // The OTLP path requires neither traces nor metrics to be configured —
@@ -69,7 +75,18 @@ func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	if !mcptoolkitotel.Configured("logs") {
+	otlpMode := otel.Configured("logs")
+
+	if c.stderrMirror && !otlpMode {
+		return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_LOGS_EXPORTER)")
+	}
+	if c.stderrMirror {
+		c.extraHandlers = append(c.extraHandlers, WithTraceContextAttrs(
+			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: c.level}),
+		))
+	}
+
+	if !otlpMode {
 		return slog.New(compose(baseHandler(c), c.extraHandlers)), noopShutdown, nil
 	}
 
@@ -106,7 +123,7 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog
 		_ = exp.Shutdown(ctx)
 	}()
 
-	res, err := mcptoolkitotel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
+	res, err := otel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
 	if err != nil {
 		return nil, nil, err
 	}

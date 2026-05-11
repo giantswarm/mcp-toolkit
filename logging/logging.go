@@ -38,6 +38,7 @@ type config struct {
 	serviceVersion  string
 	extraHandlers   []slog.Handler
 	resourceOptions []resource.Option
+	stderrMirror    bool
 }
 
 // WithFormat overrides FormatAuto. Use FormatText to force text on a
@@ -113,6 +114,21 @@ func WithExtraHandlers(handlers ...slog.Handler) Option {
 // options follow. OTLP mode only.
 func WithResourceOptions(opts ...resource.Option) Option {
 	return func(c *config) { c.resourceOptions = append(c.resourceOptions, opts...) }
+}
+
+// WithStderrMirror, in OTLP mode, appends a slog.JSONHandler on
+// os.Stderr (wrapped with WithTraceContextAttrs so records carry
+// trace_id and span_id) to the ExtraHandlers list.
+//
+// Init returns an error when applied without OTLP logs configured
+// (none of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+// OTEL_EXPORTER_OTLP_ENDPOINT, or OTEL_LOGS_EXPORTER set): the
+// non-OTLP primary already writes to os.Stderr, so a second sink
+// would double-emit.
+//
+// Honours WithLevel.
+func WithStderrMirror() Option {
+	return func(c *config) { c.stderrMirror = true }
 }
 
 // baseHandler builds the text/JSON slog handler. Single source of
