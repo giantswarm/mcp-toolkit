@@ -23,8 +23,7 @@ func clearOTLPEnv(t *testing.T) {
 }
 
 // enableOTLPLogsNone selects the OTLP code path via the no-op
-// autoexport exporter — Init wires the full LoggerProvider lifecycle
-// without attempting a network connection.
+// autoexport exporter.
 func enableOTLPLogsNone(t *testing.T) {
 	t.Helper()
 	t.Setenv(mcptoolkitotel.EnvLogsExporter, "none")

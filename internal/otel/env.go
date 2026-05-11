@@ -5,8 +5,7 @@ import (
 	"strings"
 )
 
-// Standard OTel env vars the toolkit reads. Exported so consumers
-// (and tests) reference one source of truth.
+// Standard OTel env vars the toolkit reads.
 const (
 	EnvExporterOTLPEndpoint        = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	EnvExporterOTLPTracesEndpoint  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"

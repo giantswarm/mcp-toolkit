@@ -103,8 +103,6 @@ func TestInit_WithStderrMirror_NonOTLPMode_Errors(t *testing.T) {
 	require.Error(t, err, "WithStderrMirror must fail loudly when OTLP isn't configured")
 	require.Nil(t, logger)
 	require.Nil(t, shutdown)
-	// Each of the three opt-in env vars must be named in the error so
-	// a future refactor that silently drops one is caught.
 	require.Contains(t, err.Error(), "WithStderrMirror")
 	require.Contains(t, err.Error(), mcptoolkitotel.EnvExporterOTLPLogsEndpoint)
 	require.Contains(t, err.Error(), mcptoolkitotel.EnvExporterOTLPEndpoint)

@@ -131,9 +131,8 @@ func WithStderrMirror() Option {
 	return func(c *config) { c.stderrMirror = true }
 }
 
-// newStderrMirrorHandler is the handler synthesised by
-// WithStderrMirror. Extracted so the level-honouring contract is
-// unit-testable without going through Init or touching os.Stderr.
+// newStderrMirrorHandler returns a slog.JSONHandler over w at level,
+// wrapped with WithTraceContextAttrs.
 func newStderrMirrorHandler(w io.Writer, level slog.Level) slog.Handler {
 	return WithTraceContextAttrs(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
 }
