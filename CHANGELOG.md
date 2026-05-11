@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-11
+
 ### Added
 
 - `metrics` package: `metrics.Init(ctx, ...metrics.Option) (Shutdown, error)` installs the global OTel `MeterProvider`. Exporter selected via `autoexport.NewMetricReader` from `OTEL_METRICS_EXPORTER`: `otlp`, `prometheus` (self-hosted `/metrics` on `OTEL_EXPORTER_PROMETHEUS_HOST:OTEL_EXPORTER_PROMETHEUS_PORT`, default `localhost:9464`), `console`, `none`, or comma-separated combinations. The provider pins `exemplar.TraceBasedFilter` so histogram observations recorded inside a sampled span attach the TraceID.
@@ -42,5 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tracing` package: `tracing.Init` installs an OpenTelemetry tracer provider configured from the standard `OTEL_*` environment variables, with W3C TraceContext + Baggage propagation. Returns a no-op shutdown when neither an OTLP endpoint nor `OTEL_TRACES_EXPORTER` is set, but always installs the propagator so inbound `traceparent` headers continue to chain. Note: depends on `go.opentelemetry.io/contrib/exporters/autoexport`, which transitively pulls in the OTel exporter constellation (Prometheus bridge, stdoutlog, otlp metric/log exporters) — accepted in exchange for OTel-maintained protocol selection.
 - `docs/conventions.md`: project-wide conventions consumer MCP servers should follow even when no toolkit code enforces them. Documents the paginated tool-result shape (`{ items, nextCursor }`, camelCase to match `mcp.PaginatedResult.NextCursor`).
 
-[Unreleased]: https://github.com/giantswarm/mcp-toolkit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/giantswarm/mcp-toolkit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/giantswarm/mcp-toolkit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/giantswarm/mcp-toolkit/releases/tag/v0.1.0
