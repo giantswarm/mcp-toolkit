@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
-	"github.com/giantswarm/mcp-toolkit/internal/otel"
+	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
 // Shutdown drains the LoggerProvider on graceful exit. In non-OTLP
@@ -75,7 +75,7 @@ func Init(ctx context.Context, opts ...Option) (*slog.Logger, Shutdown, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	otlpMode := otel.Configured("logs")
+	otlpMode := mcptoolkitotel.Configured("logs")
 
 	if c.stderrMirror && !otlpMode {
 		return nil, nil, fmt.Errorf("logging: WithStderrMirror requires OTLP logs to be configured (set one of OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_LOGS_EXPORTER)")
@@ -123,7 +123,7 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog
 		_ = exp.Shutdown(ctx)
 	}()
 
-	res, err := otel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
+	res, err := mcptoolkitotel.Build(ctx, c.serviceName, c.serviceVersion, c.resourceOptions)
 	if err != nil {
 		return nil, nil, err
 	}
