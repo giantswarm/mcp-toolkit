@@ -23,7 +23,8 @@ Successful patterns from this module are upstream candidates for `mark3labs/mcp-
 | [`middleware/timeout`](./middleware/timeout) | Per-tool-call `context.WithTimeout` middleware. On deadline, returns an `IsError` `CallToolResult` containing `tool X exceeded timeout of Ys` rather than a silent hang or generic context error. Parent-context cancellation propagates unchanged. |
 | [`health`](./health) | Stdlib-only `/healthz` (unconditional 200) and `/readyz` (atomic `SetReady` flag) HTTP handlers. Liveness can't flap; readiness is pod-local so downstream hiccups don't yank every replica's endpoint at once. |
 | [`httpx`](./httpx) | Graceful-shutdown wrapper around `net/http`: `Run` starts `ListenAndServe` and blocks until ctx cancel (then calls `Shutdown` with a configured timeout) or the server returns an error. |
-| [`logging`](./logging) | `slog.Logger` factory that auto-picks text vs JSON based on `KUBERNETES_SERVICE_HOST`, plus a `RedactHost` helper that scrubs IPs and URL userinfo from log strings. |
+| [`logging`](./logging) | `slog.Logger` factory that auto-picks text vs JSON based on `KUBERNETES_SERVICE_HOST`, plus a `RedactHost` helper that scrubs IPs and URL userinfo from log strings. `logging.Init` adds an OpenTelemetry logs branch (`otelslog` bridge over an OTLP exporter) for log↔trace correlation when `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` / `OTEL_LOGS_EXPORTER` is set. |
+| [`metrics`](./metrics) | OpenTelemetry meter-provider init driven by `OTEL_METRICS_EXPORTER` via autoexport — `otlp` (push to a collector), `prometheus` (self-hosted `/metrics` on `localhost:9464`), `console`, or `none`. Comma-separated values enable multiple exporters from one set of instruments. Pins `exemplar.TraceBasedFilter` so histogram observations recorded inside a sampled span attach the TraceID for Grafana's latency-bucket-to-trace pivot. |
 | [`tracing`](./tracing) | OpenTelemetry tracer-provider init driven by standard `OTEL_*` env vars. Always installs W3C TraceContext + Baggage propagators (so inbound `traceparent` headers chain) and returns a no-op shutdown when no exporter is configured. |
 
 Conventions consumer MCP servers should follow are documented in [`docs/conventions.md`](./docs/conventions.md) — currently the paginated tool-result shape (`{ items, nextCursor }`).
@@ -32,7 +33,8 @@ More to follow as they get extracted from real consumers.
 
 ## Usage
 
-Each module has its own package documentation. The general shape:
+Each module has its own package documentation. Middleware modules use
+the mcp-go convention:
 
 ```go
 import (
@@ -43,6 +45,46 @@ import (
 s := mcpserver.NewMCPServer("my-mcp", "1.0.0")
 s.Use(responsecap.New(responsecap.Options{Limit: 128 << 10}))
 ```
+
+The OTel signal `Init` helpers — `tracing.Init`, `metrics.Init`,
+`logging.Init` — share a functional-options API. The common shape is
+one call per signal at the service composition root, with each option
+opting into a specific OTel SDK knob:
+
+```go
+import (
+    "github.com/giantswarm/mcp-toolkit/logging"
+    "github.com/giantswarm/mcp-toolkit/metrics"
+    "github.com/giantswarm/mcp-toolkit/tracing"
+)
+
+ctx := context.Background()
+
+shutdownTracing, err := tracing.Init(ctx,
+    tracing.WithServiceName("my-mcp"),
+    tracing.WithServiceVersion("1.2.3"),
+)
+// handle err; defer shutdownTracing(ctx)
+
+shutdownMetrics, err := metrics.Init(ctx,
+    metrics.WithServiceName("my-mcp"),
+    metrics.WithServiceVersion("1.2.3"),
+)
+// handle err; defer shutdownMetrics(ctx)
+
+logger, shutdownLogging, err := logging.Init(ctx,
+    logging.WithServiceName("my-mcp"),
+    logging.WithServiceVersion("1.2.3"),
+    logging.WithLoggerName("github.com/your/repo"),
+)
+// handle err; defer shutdownLogging(ctx); slog.SetDefault(logger)
+```
+
+Override knobs are package-local `Option` functions:
+`metrics.WithViews`, `metrics.WithExemplarFilter`,
+`logging.WithExtraHandlers`, `logging.WithTraceContextAttrs`,
+`*.WithResourceOptions`. Each package's runnable `Example_*` functions
+show idiomatic combinations.
 
 ## Contributing
 
