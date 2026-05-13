@@ -3,7 +3,7 @@ module github.com/giantswarm/mcp-toolkit
 go 1.25.5
 
 require (
-	github.com/mark3labs/mcp-go v0.53.0
+	github.com/mark3labs/mcp-go v0.54.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.18.0
 	go.opentelemetry.io/contrib/exporters/autoexport v0.68.0
