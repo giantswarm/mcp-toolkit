@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.2.2](https://github.com/giantswarm/mcp-toolkit/compare/v0.2.1...v0.2.2) (2026-06-01)
+
+
+### Fixed
+
+* **deps:** update module github.com/mark3labs/mcp-go to v0.53.0 ([#19](https://github.com/giantswarm/mcp-toolkit/issues/19)) ([1c80117](https://github.com/giantswarm/mcp-toolkit/commit/1c8011768724d742e39449c57152d6db1d52e60e))
+* **deps:** update module github.com/mark3labs/mcp-go to v0.54.0 ([#20](https://github.com/giantswarm/mcp-toolkit/issues/20)) ([76a96ae](https://github.com/giantswarm/mcp-toolkit/commit/76a96ae26b66ed5f67188bbde43cc76ac21fcf00))
+* **deps:** update module github.com/mark3labs/mcp-go to v0.54.1 ([#26](https://github.com/giantswarm/mcp-toolkit/issues/26)) ([4242699](https://github.com/giantswarm/mcp-toolkit/commit/4242699c17b8b9e9ffbbd0201de4063b113dacf2))
+* **deps:** update opentelemetry-go monorepo ([#27](https://github.com/giantswarm/mcp-toolkit/issues/27)) ([a22c19f](https://github.com/giantswarm/mcp-toolkit/commit/a22c19fa910851ddd96f826b2a46061224bb5d6e))
+* **deps:** update opentelemetry-go-contrib monorepo ([#29](https://github.com/giantswarm/mcp-toolkit/issues/29)) ([b31b56d](https://github.com/giantswarm/mcp-toolkit/commit/b31b56d21377394dddb1387207adc127c6c1681d))
+* **nancy:** remediate nancy findings ([#28](https://github.com/giantswarm/mcp-toolkit/issues/28)) ([492a75b](https://github.com/giantswarm/mcp-toolkit/commit/492a75b163529922c3f2addf8e23fff54dd1618e))
+* **release:** seed release-please manifest with current v0.2.1 baseline ([#34](https://github.com/giantswarm/mcp-toolkit/issues/34)) ([d1a1f7e](https://github.com/giantswarm/mcp-toolkit/commit/d1a1f7e4b83adbd697b7943ba72f66d155140c87))
+
+
+### Changed
+
+* align files according to platform standards ([#25](https://github.com/giantswarm/mcp-toolkit/issues/25)) ([ccb0fdc](https://github.com/giantswarm/mcp-toolkit/commit/ccb0fdcdaaf5593ea73276b98f515b12e26cb550))
+* align files according to platform standards ([#30](https://github.com/giantswarm/mcp-toolkit/issues/30)) ([99a5364](https://github.com/giantswarm/mcp-toolkit/commit/99a5364dedec70cad3b2ec0bf12d1acf58a80a8d))
+* align files according to platform standards ([#33](https://github.com/giantswarm/mcp-toolkit/issues/33)) ([c6ca00e](https://github.com/giantswarm/mcp-toolkit/commit/c6ca00e5ba46f73d9c947799f1067552108b5fe7))
+* **deps:** update dependency architect to v8.1.0 ([#21](https://github.com/giantswarm/mcp-toolkit/issues/21)) ([e8b27ef](https://github.com/giantswarm/mcp-toolkit/commit/e8b27ef57a202274caeb97832226c8703e79cee2))
+* **deps:** update dependency architect to v8.2.1 ([#22](https://github.com/giantswarm/mcp-toolkit/issues/22)) ([dadfb86](https://github.com/giantswarm/mcp-toolkit/commit/dadfb866caf56b97d4626c3108f4fc3de4b14027))
+* **deps:** update dependency architect to v8.2.2 ([#23](https://github.com/giantswarm/mcp-toolkit/issues/23)) ([ab84fd8](https://github.com/giantswarm/mcp-toolkit/commit/ab84fd8f88ede24e07515df013d5b17d1b58ef9a))
+* **deps:** update dependency architect to v8.3.0 ([#24](https://github.com/giantswarm/mcp-toolkit/issues/24)) ([dbb54b2](https://github.com/giantswarm/mcp-toolkit/commit/dbb54b2a38c7305f67708bd0f7615fd081929c8f))
+
 ## [Unreleased]
 
 ## [0.2.1] - 2026-05-11
