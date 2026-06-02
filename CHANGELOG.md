@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.2.4](https://github.com/giantswarm/mcp-toolkit/compare/v0.2.3...v0.2.4) (2026-06-02)
+
+
+### Changed
+
+* **deps:** update dependency architect to v9.0.1 ([#36](https://github.com/giantswarm/mcp-toolkit/issues/36)) ([a6dc64c](https://github.com/giantswarm/mcp-toolkit/commit/a6dc64c83bbf60955381de9ec3e5e0d2d9c01a14))
+
 ## [0.2.3](https://github.com/giantswarm/mcp-toolkit/compare/v0.2.2...v0.2.3) (2026-06-01)
 
 
