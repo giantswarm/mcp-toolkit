@@ -14,10 +14,13 @@ import (
 	"github.com/giantswarm/mcp-toolkit/middleware/responsecap"
 )
 
+// contentTypeText is the MCP content type for plain text content parts.
+const contentTypeText = "text"
+
 func textHandler(text string) server.ToolHandlerFunc {
 	return func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
+			Content: []mcp.Content{mcp.TextContent{Type: contentTypeText, Text: text}},
 		}, nil
 	}
 }
@@ -142,9 +145,9 @@ func TestMultipleContentEvaluatedIndependently(t *testing.T) {
 	handler := func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				mcp.TextContent{Type: "text", Text: "ok"},
-				mcp.TextContent{Type: "text", Text: strings.Repeat("x", 200)},
-				mcp.TextContent{Type: "text", Text: "fine"},
+				mcp.TextContent{Type: contentTypeText, Text: "ok"},
+				mcp.TextContent{Type: contentTypeText, Text: strings.Repeat("x", 200)},
+				mcp.TextContent{Type: contentTypeText, Text: "fine"},
 			},
 		}, nil
 	}

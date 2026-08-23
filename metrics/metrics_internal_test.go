@@ -21,6 +21,10 @@ import (
 // Collect-result walks compare against a single source of truth.
 const testHistogramName = "test.duration"
 
+// testServiceName is the service.name every test in this file
+// initializes the MeterProvider with.
+const testServiceName = "test-service"
+
 // restoreGlobals snapshots the global TracerProvider and MeterProvider
 // and restores them on cleanup. initWithReader installs a real
 // MeterProvider as the global — without this, the first test that
@@ -54,7 +58,7 @@ func TestInitWithReader_HistogramExemplarAttachesTraceID(t *testing.T) {
 	// touching the network.
 	reader := sdkmetric.NewManualReader()
 	shutdown, err := initWithReader(t.Context(), reader, config{
-		serviceName:    "test-service",
+		serviceName:    testServiceName,
 		serviceVersion: "0.0.0-test",
 	})
 	require.NoError(t, err)
@@ -148,7 +152,7 @@ func TestInitWithReader_WithResourceOptions_AttachesCallerAttrs(t *testing.T) {
 
 	reader := sdkmetric.NewManualReader()
 	shutdown, err := initWithReader(t.Context(), reader, config{
-		serviceName: "test-service",
+		serviceName: testServiceName,
 		resourceOptions: []resource.Option{resource.WithAttributes(
 			attribute.String("deployment.environment", "production"),
 			attribute.String("cluster.name", "glean"),
@@ -175,7 +179,7 @@ func TestInitWithReader_WithResourceOptions_AttachesCallerAttrs(t *testing.T) {
 	// Sanity: toolkit defaults still applied.
 	svcName, hasSvcName := rm.Resource.Set().Value(attribute.Key("service.name"))
 	require.True(t, hasSvcName)
-	require.Equal(t, "test-service", svcName.AsString())
+	require.Equal(t, testServiceName, svcName.AsString())
 }
 
 // TestInitWithReader_ExemplarFilter_AlwaysOff verifies that an
@@ -190,7 +194,7 @@ func TestInitWithReader_ExemplarFilter_AlwaysOff(t *testing.T) {
 
 	reader := sdkmetric.NewManualReader()
 	shutdown, err := initWithReader(t.Context(), reader, config{
-		serviceName:    "test-service",
+		serviceName:    testServiceName,
 		exemplarFilter: exemplar.AlwaysOffFilter,
 	})
 	require.NoError(t, err)

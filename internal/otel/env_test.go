@@ -8,6 +8,9 @@ import (
 	"github.com/giantswarm/mcp-toolkit/internal/otel"
 )
 
+// signalTraces is the signal name used by most cases below.
+const signalTraces = "traces"
+
 func TestConfigured(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -17,13 +20,13 @@ func TestConfigured(t *testing.T) {
 	}{
 		{
 			name:   "traces: no env, not configured",
-			signal: "traces",
+			signal: signalTraces,
 			env:    map[string]string{},
 			want:   false,
 		},
 		{
 			name:   "traces: signal-specific OTLP endpoint",
-			signal: "traces",
+			signal: signalTraces,
 			env:    map[string]string{otel.EnvExporterOTLPTracesEndpoint: "http://collector:4318"},
 			want:   true,
 		},
@@ -47,7 +50,7 @@ func TestConfigured(t *testing.T) {
 		},
 		{
 			name:   "traces: other-signal env does NOT leak",
-			signal: "traces",
+			signal: signalTraces,
 			env:    map[string]string{otel.EnvMetricsExporter: "otlp"},
 			want:   false,
 		},
