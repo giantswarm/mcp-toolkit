@@ -14,6 +14,10 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
+// testServiceName is the service.name every test in this file
+// initializes the logger with.
+const testServiceName = "muster"
+
 // captureExporter records every Record it receives. The zero value is
 // usable; Shutdown and ForceFlush are no-ops.
 type captureExporter struct {
@@ -77,7 +81,7 @@ func TestInitWithExporter_ExtraHandlersReceiveRecords(t *testing.T) {
 	extra := &extraSink{}
 	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
 		loggerName:    "github.com/giantswarm/mcp-toolkit/logging/test",
-		serviceName:   "muster",
+		serviceName:   testServiceName,
 		extraHandlers: []slog.Handler{extra},
 	})
 	require.NoError(t, err)
@@ -98,7 +102,7 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	exp := &captureExporter{}
 	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
 		loggerName:     "github.com/giantswarm/mcp-toolkit/logging/test",
-		serviceName:    "muster",
+		serviceName:    testServiceName,
 		serviceVersion: "1.2.3-test",
 	})
 	require.NoError(t, err)
@@ -120,7 +124,7 @@ func TestInitWithExporter_ServiceIdentityOnResource_LoggerNameOnScope(t *testing
 	require.NotNil(t, res)
 	name, ok := res.Set().Value(semconv.ServiceNameKey)
 	require.True(t, ok, "service.name must be set on the Resource")
-	require.Equal(t, "muster", name.AsString())
+	require.Equal(t, testServiceName, name.AsString())
 	version, ok := res.Set().Value(semconv.ServiceVersionKey)
 	require.True(t, ok, "service.version must be set on the Resource")
 	require.Equal(t, "1.2.3-test", version.AsString())
@@ -137,7 +141,7 @@ func TestInitWithExporter_WithFormatIgnoredInOTLPMode(t *testing.T) {
 		// FormatJSON would force slog.NewJSONHandler in the non-OTLP
 		// path; in OTLP mode it must be ignored.
 		format:      FormatJSON,
-		serviceName: "muster",
+		serviceName: testServiceName,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
@@ -159,7 +163,7 @@ func TestInitWithExporter_WithResourceOptions_AttachesCallerAttrs(t *testing.T) 
 
 	exp := &captureExporter{}
 	logger, shutdown, err := initWithExporter(t.Context(), exp, config{
-		serviceName: "muster",
+		serviceName: testServiceName,
 		resourceOptions: []resource.Option{resource.WithAttributes(
 			attribute.String("deployment.environment", "production"),
 			attribute.String("cluster.name", "glean"),
@@ -186,5 +190,5 @@ func TestInitWithExporter_WithResourceOptions_AttachesCallerAttrs(t *testing.T) 
 	// Sanity: toolkit defaults still applied.
 	svcName, hasSvcName := res.Set().Value(semconv.ServiceNameKey)
 	require.True(t, hasSvcName)
-	require.Equal(t, "muster", svcName.AsString())
+	require.Equal(t, testServiceName, svcName.AsString())
 }
