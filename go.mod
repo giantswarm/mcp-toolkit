@@ -59,3 +59,5 @@ require (
 )
 
 replace golang.org/x/net v0.52.0 => golang.org/x/net v0.55.0
+
+replace golang.org/x/mod v0.38.0 => golang.org/x/mod v0.41.0
