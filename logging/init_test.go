@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel"
 
 	"github.com/giantswarm/mcp-toolkit/logging"
 )
@@ -15,8 +15,8 @@ import (
 // and restores it on cleanup. Init in OTLP mode mutates the global.
 func restoreGlobalLoggerProvider(t *testing.T) {
 	t.Helper()
-	prev := global.GetLoggerProvider()
-	t.Cleanup(func() { global.SetLoggerProvider(prev) })
+	prev := otel.GetLoggerProvider()
+	t.Cleanup(func() { otel.SetLoggerProvider(prev) })
 }
 
 func TestInit_OTLP_NoneExporter_ReturnsShutdown(t *testing.T) {
