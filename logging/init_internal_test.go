@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -51,8 +51,8 @@ func (e *captureExporter) collected() []sdklog.Record {
 // provider installed for every test that follows.
 func restoreGlobalLoggerProvider(t *testing.T) {
 	t.Helper()
-	prev := global.GetLoggerProvider()
-	t.Cleanup(func() { global.SetLoggerProvider(prev) })
+	prev := otel.GetLoggerProvider()
+	t.Cleanup(func() { otel.SetLoggerProvider(prev) })
 }
 
 // extraSink is a slog.Handler that records every record it sees as

@@ -8,7 +8,7 @@ import (
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
-	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
 	mcptoolkitotel "github.com/giantswarm/mcp-toolkit/internal/otel"
@@ -33,7 +33,7 @@ type Shutdown func(ctx context.Context) error
 // LoggerProvider with a BatchProcessor and an autoexport-selected
 // exporter. The provider is also registered as the global OTel
 // LoggerProvider so any code that emits OTel logs directly (e.g. via
-// otel/log/global.Logger) routes through it. Records carry the active
+// otel.Logger) routes through it. Records carry the active
 // span's TraceID and SpanID automatically (the OTel SDK pulls
 // SpanContext from the call's context.Context). WithStderrMirror, if
 // applied, synthesises an additional slog.JSONHandler on os.Stderr
@@ -137,7 +137,7 @@ func initWithExporter(ctx context.Context, exp sdklog.Exporter, c config) (*slog
 		sdklog.WithResource(res),
 	)
 	exporterOwned = true
-	global.SetLoggerProvider(lp)
+	otel.SetLoggerProvider(lp)
 	primary := otelslog.NewHandler(c.loggerName, otelslog.WithLoggerProvider(lp))
 	return slog.New(compose(primary, c.extraHandlers)), lp.Shutdown, nil
 }
