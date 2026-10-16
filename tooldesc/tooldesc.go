@@ -1,7 +1,6 @@
 package tooldesc
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -137,17 +136,11 @@ func prefix(d string, n int) string {
 // RawInputSchema (mcp.WithInputSchema, mcp.NewToolWithRawSchema) are read
 // alike.
 func checkSchema(tool mcp.Tool, limit int) []error {
-	b, err := json.Marshal(tool)
+	schema, err := inputSchema(tool)
 	if err != nil {
-		return []error{fmt.Errorf("%s: input schema: %w", tool.Name, err)}
+		return []error{err}
 	}
-	var t struct {
-		InputSchema any `json:"inputSchema"`
-	}
-	if err := json.Unmarshal(b, &t); err != nil {
-		return []error{fmt.Errorf("%s: input schema: %w", tool.Name, err)}
-	}
-	return walkSchema(tool.Name, "", t.InputSchema, limit)
+	return walkSchema(tool.Name, "", schema, limit)
 }
 
 // walkSchema checks the description of node and of everything below it.

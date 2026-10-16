@@ -73,6 +73,23 @@ func TestToolDescriptions(t *testing.T) {
 }
 ```
 
+Keep the text in review, too: a generated `docs/tools.md` shows every description and input schema exactly as a model reads them, and a test keeps it current. `tooldesc.RenderServerDoc` writes the page, with `<` escaped outside code spans so GitHub keeps `<namespace>`, and the schemas without JSON's HTML escapes.
+
+```go
+// TOOLS_DOC_UPDATE=1 rewrites docs/tools.md.
+func TestToolsDocIsCurrent(t *testing.T) {
+    want, err := tooldesc.RenderServerDoc(newServer(), "# The tools\n\nGenerated from the registered tools.")
+    require.NoError(t, err)
+    const path = "../../docs/tools.md"
+    if os.Getenv("TOOLS_DOC_UPDATE") != "" {
+        require.NoError(t, os.WriteFile(path, []byte(want), 0o600))
+    }
+    got, err := os.ReadFile(path)
+    require.NoError(t, err)
+    require.Equal(t, want, string(got), "docs/tools.md is out of date: run with TOOLS_DOC_UPDATE=1")
+}
+```
+
 ### The summary line
 
 It stands on its own, at most 120 runes on one line:

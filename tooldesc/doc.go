@@ -14,6 +14,10 @@
 // description in the input schema, and a prefix no two tools may share (a
 // shared boilerplate opening leaves every summary saying the same).
 //
+// [RenderDoc] and [RenderServerDoc] write the markdown page a server keeps
+// as docs/tools.md, with a test that keeps it current: every description and
+// input schema as a model reads them, for review.
+//
 // What belongs in a summary and what in the details is in the toolkit's
 // docs/conventions.md, "Tool descriptions".
 package tooldesc
