@@ -129,13 +129,15 @@ func TestCheck_ShortSharedOpeningIsAllowed(t *testing.T) {
 }
 
 func TestCheck_NestedSchemaDescriptions(t *testing.T) {
-	long := strings.Repeat("y", 151)
+	long := func() map[string]any {
+		return map[string]any{"type": "string", "description": strings.Repeat("y", 151)}
+	}
 	tool := mcp.NewTool("update", tooldesc.Describe("Update an entry.", ""),
 		mcp.WithObject("entry", mcp.Description("The entry."), mcp.Properties(map[string]any{
-			"lifecycle":   map[string]any{"type": "string", "description": long},
-			"description": map[string]any{"type": "string", "description": long},
+			"lifecycle":   long(),
+			"description": long(),
 		})),
-		mcp.WithArray("tags", mcp.Items(map[string]any{"type": "string", "description": long})),
+		mcp.WithArray("tags", mcp.Items(long())),
 	)
 	err := tooldesc.Check([]mcp.Tool{tool}, tooldesc.DefaultBudget)
 	require.EqualError(t, err, strings.Join([]string{
