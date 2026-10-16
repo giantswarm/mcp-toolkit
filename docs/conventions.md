@@ -109,3 +109,23 @@ Examples of details worth keeping: "pass the whole entry, not a patch: omitted f
 ### When an agent gets a tool wrong
 
 Fix the tool's answer or refusal first: it costs tokens only when it is relevant, the description costs them on every listing. Extend the description only for a mistake no answer can correct — the wrong tool picked, or an irreversible call.
+
+When a description does gain a sentence for such a mistake, add a test that asserts the fact it states — a short phrase, not the whole sentence — with the mistake in the failure message:
+
+```go
+func TestListKeepsItsOrderingFacts(t *testing.T) {
+    d := toolByName(t, "list").Description
+    for fact, why := range map[string]string{
+        "alphabetical prefix": "a limited list of any other type is not the newest or the worst",
+        "exact values":        "nothing selects by age: filter is equality-only",
+    } {
+        assert.Contains(t, d, fact, "list's description lost a fact from #559: %s", why)
+    }
+}
+```
+
+The description can then be reworded freely, and the fact still cannot be shortened away unnoticed. Keep these tests to the sentences that fixed an observed mistake; most description text needs none.
+
+### Before you shorten a description
+
+Find out why each sentence is there before you cut it. Pull requests are squash-merged, so the commit carries only the title: `git log -S'<sentence>'` names the commit, its `(#N)` the pull request, and the pull request's description the reason. A sentence added to fix what agents did wrong is a guardrail: keep its fact, in fewer words, and give it a test as above if it has none. A sentence that came with a feature and only describes it can usually go, or move into the answer.
