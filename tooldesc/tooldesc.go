@@ -1,7 +1,6 @@
 package tooldesc
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -84,8 +83,7 @@ var DefaultBudget = Budget{Description: 600, Param: 150, Prefix: 40}
 // [SummaryMax] and non-empty — including a tool that does not use
 // [Describe]. It returns every violation, ordered by tool name, or nil.
 func Check(tools []mcp.Tool, b Budget) error {
-	tools = append([]mcp.Tool(nil), tools...)
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	tools = sortedByName(tools)
 	var errs []error
 	prefixes := map[string]string{}
 	for _, tool := range tools {
@@ -137,17 +135,11 @@ func prefix(d string, n int) string {
 // RawInputSchema (mcp.WithInputSchema, mcp.NewToolWithRawSchema) are read
 // alike.
 func checkSchema(tool mcp.Tool, limit int) []error {
-	b, err := json.Marshal(tool)
+	schema, err := inputSchema(tool)
 	if err != nil {
-		return []error{fmt.Errorf("%s: input schema: %w", tool.Name, err)}
+		return []error{err}
 	}
-	var t struct {
-		InputSchema any `json:"inputSchema"`
-	}
-	if err := json.Unmarshal(b, &t); err != nil {
-		return []error{fmt.Errorf("%s: input schema: %w", tool.Name, err)}
-	}
-	return walkSchema(tool.Name, "", t.InputSchema, limit)
+	return walkSchema(tool.Name, "", schema, limit)
 }
 
 // walkSchema checks the description of node and of everything below it.
@@ -210,9 +202,5 @@ func join(path, name string) string {
 // AddTools. Session tools (AddSessionTool) are not among them: pass those to
 // [Check].
 func CheckServer(s *server.MCPServer, b Budget) error {
-	var tools []mcp.Tool
-	for _, st := range s.ListTools() {
-		tools = append(tools, st.Tool)
-	}
-	return Check(tools, b)
+	return Check(serverTools(s), b)
 }

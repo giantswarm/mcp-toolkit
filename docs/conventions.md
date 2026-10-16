@@ -73,6 +73,14 @@ func TestToolDescriptions(t *testing.T) {
 }
 ```
 
+Keep the text in review, too: a generated `docs/tools.md` shows every description and input schema exactly as a model reads them, and a test keeps it current. `tooldesc.RenderServerDoc` writes the page, each description in a fenced text block so GitHub interprets none of it, and the schemas as the tool sends them; `tooldesctest.AssertServerDoc` compares it with the file and writes it under `TOOLS_DOC_UPDATE=1`.
+
+```go
+func TestToolsDocIsCurrent(t *testing.T) {
+    tooldesctest.AssertServerDoc(t, newServer(), "# The tools\n\nGenerated from the registered tools.", "../../docs/tools.md")
+}
+```
+
 ### The summary line
 
 It stands on its own, at most 120 runes on one line:
