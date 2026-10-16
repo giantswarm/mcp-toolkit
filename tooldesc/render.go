@@ -17,12 +17,12 @@ import (
 // (read-only, write, or write, destructive), then per tool its description
 // and its input schema as indented JSON. Tools are ordered by name.
 //
-// The page renders on GitHub as the model reads it: a < outside a code span
-// is escaped, so <namespace> is not taken for an HTML tag, and the schemas
-// are written without JSON's HTML escapes (< for <).
+// Each description is a fenced text block, so no markdown in it is
+// interpreted: GitHub shows the characters the model reads. Schemas keep
+// their numbers as written and are free of JSON's HTML escapes (< for
+// <); a raw schema keeps its key order.
 func RenderDoc(tools []mcp.Tool, header string) (string, error) {
-	tools = append([]mcp.Tool(nil), tools...)
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	tools = sortedByName(tools)
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(header, "\n"))
 	b.WriteString("\n\n| Tool | Kind |\n|---|---|\n")
@@ -34,7 +34,7 @@ func RenderDoc(tools []mcp.Tool, header string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "\n## `%s`\n\n%s\n\n```json\n%s```\n", tool.Name, escapeMarkdown(tool.Description), schema)
+		fmt.Fprintf(&b, "\n## `%s`\n\n%s\n\n```json\n%s```\n", tool.Name, fenced(tool.Description), schema)
 	}
 	return b.String(), nil
 }
@@ -42,11 +42,29 @@ func RenderDoc(tools []mcp.Tool, header string) (string, error) {
 // RenderServerDoc is [RenderDoc] over the tools registered on s with AddTool
 // or AddTools.
 func RenderServerDoc(s *server.MCPServer, header string) (string, error) {
+	return RenderDoc(serverTools(s), header)
+}
+
+// serverTools are the tools registered on s with AddTool or AddTools.
+func serverTools(s *server.MCPServer) []mcp.Tool {
 	var tools []mcp.Tool
 	for _, st := range s.ListTools() {
 		tools = append(tools, st.Tool)
 	}
-	return RenderDoc(tools, header)
+	return tools
+}
+
+// sortedByName is a sorted copy of tools: by name, then by description, so
+// the order is the same on every run.
+func sortedByName(tools []mcp.Tool) []mcp.Tool {
+	tools = append([]mcp.Tool(nil), tools...)
+	sort.SliceStable(tools, func(i, j int) bool {
+		if tools[i].Name != tools[j].Name {
+			return tools[i].Name < tools[j].Name
+		}
+		return tools[i].Description < tools[j].Description
+	})
+	return tools
 }
 
 // kind reads a tool's annotations with the MCP defaults for unset hints:
@@ -61,14 +79,68 @@ func kind(a mcp.ToolAnnotation) string {
 	return "write"
 }
 
+// fenced puts s in a fenced text block whose fence is longer than any run of
+// backticks in s, so nothing in s can close it.
+func fenced(s string) string {
+	longest, run := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", max(3, longest+1))
+	return fence + "text\n" + s + "\n" + fence
+}
+
+// schemaJSON is the tool's input schema as the tool sends it: a
+// RawInputSchema (mcp.WithInputSchema, mcp.NewToolWithRawSchema) as given,
+// else the structured InputSchema marshalled.
+func schemaJSON(tool mcp.Tool) ([]byte, error) {
+	if tool.RawInputSchema != nil {
+		return tool.RawInputSchema, nil
+	}
+	b, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		return nil, fmt.Errorf("%s: input schema: %w", tool.Name, err)
+	}
+	return b, nil
+}
+
+// inputSchema is the tool's input schema decoded, numbers as json.Number.
+func inputSchema(tool mcp.Tool) (any, error) {
+	b, err := schemaJSON(tool)
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("%s: input schema: %w", tool.Name, err)
+	}
+	return v, nil
+}
+
 // indentedSchema is the tool's input schema as indented JSON with a trailing
-// newline, without HTML escapes.
+// newline. A raw schema is indented as written, its key order kept; a
+// structured one is decoded and encoded again, which undoes mcp-go's HTML
+// escapes and writes its keys sorted, as mcp-go does.
 func indentedSchema(tool mcp.Tool) (string, error) {
+	var buf bytes.Buffer
+	if tool.RawInputSchema != nil {
+		if err := json.Indent(&buf, tool.RawInputSchema, "", "  "); err != nil {
+			return "", fmt.Errorf("%s: input schema: %w", tool.Name, err)
+		}
+		buf.WriteByte('\n')
+		return buf.String(), nil
+	}
 	schema, err := inputSchema(tool)
 	if err != nil {
 		return "", err
 	}
-	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
@@ -76,72 +148,4 @@ func indentedSchema(tool mcp.Tool) (string, error) {
 		return "", fmt.Errorf("%s: input schema: %w", tool.Name, err)
 	}
 	return buf.String(), nil
-}
-
-// inputSchema is the tool's input schema as the tool marshals it, so a
-// structured InputSchema and a RawInputSchema (mcp.WithInputSchema,
-// mcp.NewToolWithRawSchema) read alike. mcp-go's own marshalling escapes <, >
-// and &; decoded, they are themselves again.
-func inputSchema(tool mcp.Tool) (any, error) {
-	b, err := json.Marshal(tool)
-	if err != nil {
-		return nil, fmt.Errorf("%s: input schema: %w", tool.Name, err)
-	}
-	var t struct {
-		InputSchema any `json:"inputSchema"`
-	}
-	if err := json.Unmarshal(b, &t); err != nil {
-		return nil, fmt.Errorf("%s: input schema: %w", tool.Name, err)
-	}
-	return t.InputSchema, nil
-}
-
-// escapeMarkdown escapes every < outside a code span. Inside one a backslash
-// shows literally, and a code span already keeps < as text.
-func escapeMarkdown(s string) string {
-	var b strings.Builder
-	open := 0 // length of the backtick run that opened the current code span
-	for i := 0; i < len(s); {
-		if s[i] == '`' {
-			n := 0
-			for i+n < len(s) && s[i+n] == '`' {
-				n++
-			}
-			switch {
-			case open == 0 && hasRun(s[i+n:], n):
-				open = n
-			case open == n:
-				open = 0
-			}
-			b.WriteString(s[i : i+n])
-			i += n
-			continue
-		}
-		if s[i] == '<' && open == 0 {
-			b.WriteByte('\\')
-		}
-		b.WriteByte(s[i])
-		i++
-	}
-	return b.String()
-}
-
-// hasRun says whether s holds a run of exactly n backticks, the run that
-// closes a code span opened by n.
-func hasRun(s string, n int) bool {
-	for i := 0; i < len(s); {
-		if s[i] != '`' {
-			i++
-			continue
-		}
-		m := 0
-		for i+m < len(s) && s[i+m] == '`' {
-			m++
-		}
-		if m == n {
-			return true
-		}
-		i += m
-	}
-	return false
 }

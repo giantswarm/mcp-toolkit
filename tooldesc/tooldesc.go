@@ -83,8 +83,7 @@ var DefaultBudget = Budget{Description: 600, Param: 150, Prefix: 40}
 // [SummaryMax] and non-empty — including a tool that does not use
 // [Describe]. It returns every violation, ordered by tool name, or nil.
 func Check(tools []mcp.Tool, b Budget) error {
-	tools = append([]mcp.Tool(nil), tools...)
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	tools = sortedByName(tools)
 	var errs []error
 	prefixes := map[string]string{}
 	for _, tool := range tools {
@@ -203,9 +202,5 @@ func join(path, name string) string {
 // AddTools. Session tools (AddSessionTool) are not among them: pass those to
 // [Check].
 func CheckServer(s *server.MCPServer, b Budget) error {
-	var tools []mcp.Tool
-	for _, st := range s.ListTools() {
-		tools = append(tools, st.Tool)
-	}
-	return Check(tools, b)
+	return Check(serverTools(s), b)
 }

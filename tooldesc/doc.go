@@ -15,8 +15,8 @@
 // shared boilerplate opening leaves every summary saying the same).
 //
 // [RenderDoc] and [RenderServerDoc] write the markdown page a server keeps
-// as docs/tools.md, with a test that keeps it current: every description and
-// input schema as a model reads them, for review.
+// as docs/tools.md: every description and input schema as a model reads
+// them, for review. Package tooldesctest keeps the page current in a test.
 //
 // What belongs in a summary and what in the details is in the toolkit's
 // docs/conventions.md, "Tool descriptions".
