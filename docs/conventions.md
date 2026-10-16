@@ -81,7 +81,7 @@ It stands on its own, at most 120 runes on one line:
 - **The sibling to use instead**, when one is close: "For an existing repository: adopt_repository."
 - Or **the one thing the person must do**: "Deleting wipes code and issues; the person must type the name."
 
-No shared opening across tools (`WRITES (as you, …)`, `Read-only.`): it fills the summary of every tool with the same words, so the summaries stop telling the tools apart. Say read, write and destructive with the annotations instead — `readOnlyHint`, `destructiveHint`, `idempotentHint` — and set all three on purpose: a tool that sets only `readOnlyHint: true` is reported `destructiveHint: true` by mcp-go's defaults.
+No shared opening across tools (`WRITES (as you, …)`, `Read-only.`): it fills the summary of every tool with the same words, so the summaries stop telling the tools apart. `Check` catches an opening shared across the first 40 runes (`Budget.Prefix`, ignoring case and leading space); a short one like `Read-only.` is left to review, since a check for it would also flag tools that just start with the same verb. Say read, write and destructive with the annotations instead — `readOnlyHint`, `destructiveHint`, `idempotentHint` — and set all three on purpose: a tool that sets only `readOnlyHint: true` is reported `destructiveHint: true` by mcp-go's defaults.
 
 ### What the details keep
 

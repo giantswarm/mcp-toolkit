@@ -87,3 +87,75 @@ func TestCheckServer_ReadsTheRegisteredTools(t *testing.T) {
 	s.AddTool(mcp.NewTool("long", mcp.WithDescription(strings.Repeat("z", 121))), nil)
 	require.ErrorContains(t, tooldesc.CheckServer(s, tooldesc.Budget{}), "long: first line is 121 runes")
 }
+
+func TestCheck_OrdersViolationsByToolName(t *testing.T) {
+	long := strings.Repeat("z", 121)
+	tools := []mcp.Tool{
+		mcp.NewTool("zeta", mcp.WithDescription(long+"a")),
+		mcp.NewTool("alpha", mcp.WithDescription(long+"b")),
+		mcp.NewTool("mid", mcp.WithDescription(long+"c")),
+	}
+	err := tooldesc.Check(tools, tooldesc.Budget{})
+	require.EqualError(t, err, strings.Join([]string{
+		"alpha: first line is 122 runes, over 120",
+		"mid: first line is 122 runes, over 120",
+		"zeta: first line is 122 runes, over 120",
+	}, "\n"))
+}
+
+func TestCheck_EmptyFirstLine(t *testing.T) {
+	for name, d := range map[string]string{"no description": "", "leading newline": "\nDelete a repository."} {
+		t.Run(name, func(t *testing.T) {
+			err := tooldesc.Check([]mcp.Tool{mcp.NewTool("delete_repo", mcp.WithDescription(d))}, tooldesc.Budget{})
+			require.ErrorContains(t, err, "delete_repo: first line is empty")
+		})
+	}
+}
+
+func TestCheck_ShortIdenticalDescriptionsShareThePrefix(t *testing.T) {
+	tools := []mcp.Tool{
+		mcp.NewTool("a", mcp.WithDescription("Read-only. List the things.")),
+		mcp.NewTool("b", mcp.WithDescription("  read-only. list the things.")),
+	}
+	require.ErrorContains(t, tooldesc.Check(tools, tooldesc.DefaultBudget), `b: starts like a: "read-only. list the things."`)
+}
+
+func TestCheck_ShortSharedOpeningIsAllowed(t *testing.T) {
+	tools := []mcp.Tool{
+		mcp.NewTool("list_pods", mcp.WithDescription("List pods in a namespace, filtered by label and phase.")),
+		mcp.NewTool("list_nodes", mcp.WithDescription("List nodes of the cluster, with their capacity and taints.")),
+	}
+	require.NoError(t, tooldesc.Check(tools, tooldesc.DefaultBudget))
+}
+
+func TestCheck_NestedSchemaDescriptions(t *testing.T) {
+	long := strings.Repeat("y", 151)
+	tool := mcp.NewTool("update", tooldesc.Describe("Update an entry.", ""),
+		mcp.WithObject("entry", mcp.Description("The entry."), mcp.Properties(map[string]any{
+			"lifecycle":   map[string]any{"type": "string", "description": long},
+			"description": map[string]any{"type": "string", "description": long},
+		})),
+		mcp.WithArray("tags", mcp.Items(map[string]any{"type": "string", "description": long})),
+	)
+	err := tooldesc.Check([]mcp.Tool{tool}, tooldesc.DefaultBudget)
+	require.EqualError(t, err, strings.Join([]string{
+		"update.entry.description: description is 151 runes, over 150",
+		"update.entry.lifecycle: description is 151 runes, over 150",
+		"update.tags[]: description is 151 runes, over 150",
+	}, "\n"))
+}
+
+func TestCheck_RawInputSchema(t *testing.T) {
+	raw := []byte(`{"type":"object","properties":{"confirm":{"type":"string","description":"` + strings.Repeat("y", 151) + `"}}}`)
+	tool := mcp.NewToolWithRawSchema("delete", "Delete a thing.", raw)
+	require.ErrorContains(t, tooldesc.Check([]mcp.Tool{tool}, tooldesc.DefaultBudget), "delete.confirm: description is 151 runes, over 150")
+}
+
+type deleteArgs struct {
+	Confirm string `json:"confirm" jsonschema:"the repository name exactly as the person typed it; ask them and never fill it in yourself, because a wrong name deletes another repository, which an org owner must restore"`
+}
+
+func TestCheck_TypedInputSchema(t *testing.T) {
+	tool := mcp.NewTool("delete", tooldesc.Describe("Delete a thing.", ""), mcp.WithInputSchema[deleteArgs]())
+	require.ErrorContains(t, tooldesc.Check([]mcp.Tool{tool}, tooldesc.DefaultBudget), "delete.confirm: description is")
+}

@@ -6,12 +6,13 @@
 // The model picks its tool from that summary; the rest of the description
 // arrives with describe_tool, after the pick. [Describe] puts the summary on
 // that first line and the details after a blank line, and panics on a summary
-// that does not fit, so a server with one does not build.
+// that does not fit as the tool is built, so any test that builds the server
+// fails.
 //
 // [Check] and [CheckServer] hold the rest of a server's descriptions to a
-// [Budget] in its tests: the summary line, the whole description, each
-// parameter's description, and a prefix no two tools may share (a shared
-// boilerplate opening leaves every summary saying the same).
+// [Budget] in its tests: the summary line, the whole description, every
+// description in the input schema, and a prefix no two tools may share (a
+// shared boilerplate opening leaves every summary saying the same).
 //
 // What belongs in a summary and what in the details is in the toolkit's
 // docs/conventions.md, "Tool descriptions".
