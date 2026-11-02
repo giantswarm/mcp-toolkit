@@ -15,6 +15,8 @@
 //     initialisation driven by the standard OTEL_* environment variables
 //   - [github.com/giantswarm/mcp-toolkit/tooldesc]: tool descriptions that
 //     lead with the summary line muster's discovery shows, and their budgets
+//   - [github.com/giantswarm/mcp-toolkit/brand]: the Giant Swarm logo as the
+//     server's MCP icon
 //
 // The root package exists so that the module root is a buildable Go package:
 // the CI go-build job compiles the module root, and a root without Go files
