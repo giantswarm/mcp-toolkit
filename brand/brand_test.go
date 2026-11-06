@@ -66,8 +66,34 @@ func TestGiantSwarmIcon_FitsMustersLimit(t *testing.T) {
 	require.Less(t, len(brand.GiantSwarmIcon().Src), musterIconLimit)
 }
 
+func TestIcon_DataURIDecodesToTheSVG(t *testing.T) {
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>`)
+
+	icon := brand.Icon(svg)
+	require.True(t, strings.HasPrefix(icon.Src, dataURIPrefix))
+	got, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(icon.Src, dataURIPrefix))
+	require.NoError(t, err)
+	require.Equal(t, svg, got)
+
+	require.Equal(t, "image/svg+xml", icon.MIMEType)
+	require.Equal(t, []string{"any"}, icon.Sizes)
+	require.Empty(t, icon.Theme)
+}
+
+func TestWithIcon_InitializeResultCarriesTheIcon(t *testing.T) {
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>`)
+	require.Equal(t, []mcp.Icon{brand.Icon(svg)}, initializeIcons(t, brand.WithIcon(svg)))
+}
+
 func TestWithGiantSwarmIcon_InitializeResultCarriesTheIcon(t *testing.T) {
-	s := server.NewMCPServer("test", "0", brand.WithGiantSwarmIcon())
+	require.Equal(t, []mcp.Icon{brand.GiantSwarmIcon()}, initializeIcons(t, brand.WithGiantSwarmIcon()))
+}
+
+// initializeIcons returns serverInfo.icons of the initialize result of a
+// server built with opt.
+func initializeIcons(t *testing.T, opt server.ServerOption) []mcp.Icon {
+	t.Helper()
+	s := server.NewMCPServer("test", "0", opt)
 
 	resp := s.HandleMessage(context.Background(), json.RawMessage(`{
 		"jsonrpc": "2.0",
@@ -84,5 +110,5 @@ func TestWithGiantSwarmIcon_InitializeResultCarriesTheIcon(t *testing.T) {
 	require.True(t, ok, "response: %#v", resp)
 	result, ok := rpc.Result.(mcp.InitializeResult)
 	require.True(t, ok, "result: %#v", rpc.Result)
-	require.Equal(t, []mcp.Icon{brand.GiantSwarmIcon()}, result.ServerInfo.Icons)
+	return result.ServerInfo.Icons
 }

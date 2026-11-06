@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `brand` package: `brand.WithGiantSwarmIcon()` is a `server.ServerOption` that sets the Giant Swarm logo as the server's MCP icon (`serverInfo.icons` in the initialize result), so clients such as muster and the developer portal can show it. `brand.GiantSwarmIcon()` returns the `mcp.Icon`: the embedded full-colour SVG as a `data:image/svg+xml;base64,` URI, sizes `any`, no theme. Works without network access.
+- `brand` package: `brand.WithGiantSwarmIcon()` is a `server.ServerOption` that sets the Giant Swarm logo as the server's MCP icon (`serverInfo.icons` in the initialize result), so clients such as muster and the developer portal can show it. `brand.GiantSwarmIcon()` returns the `mcp.Icon`: the embedded full-colour SVG as a `data:image/svg+xml;base64,` URI, sizes `any`, no theme. Works without network access. `brand.WithIcon(svg)` and `brand.Icon(svg)` do the same for any embedded SVG, for a server that shows an upstream project's logo.
 
 ## [0.2.1] - 2026-05-11
 
