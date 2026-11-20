@@ -33,13 +33,14 @@ func (h *Health) IsReady() bool {
 
 // Mount registers /healthz and /readyz on mux.
 func (h *Health) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("/healthz", h.Liveness)
-	mux.HandleFunc("/readyz", h.Readiness)
+	mux.HandleFunc("GET /healthz", h.Liveness)
+	mux.HandleFunc("GET /readyz", h.Readiness)
 }
 
 // Liveness is the /healthz handler: always 200.
 func (h *Health) Liveness(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }
@@ -47,6 +48,7 @@ func (h *Health) Liveness(w http.ResponseWriter, _ *http.Request) {
 // Readiness is the /readyz handler: 200 when ready, 503 when not.
 func (h *Health) Readiness(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	if h.ready.Load() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
