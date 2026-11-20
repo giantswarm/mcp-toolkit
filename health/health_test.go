@@ -1,6 +1,8 @@
 package health_test
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/giantswarm/mcp-toolkit/health"
 )
+
+const readinessPath = "/readyz"
 
 func TestNew_StartsNotReady(t *testing.T) {
 	h := health.New()
@@ -40,7 +44,7 @@ func TestLiveness_AlwaysReturns200(t *testing.T) {
 func TestReadiness_503WhenNotReady(t *testing.T) {
 	h := health.New()
 	rec := httptest.NewRecorder()
-	h.Readiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	h.Readiness(rec, httptest.NewRequest(http.MethodGet, readinessPath, nil))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	require.Equal(t, "not ready", rec.Body.String())
 }
@@ -49,7 +53,7 @@ func TestReadiness_200WhenReady(t *testing.T) {
 	h := health.New()
 	h.SetReady(true)
 	rec := httptest.NewRecorder()
-	h.Readiness(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	h.Readiness(rec, httptest.NewRequest(http.MethodGet, readinessPath, nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "ready", rec.Body.String())
 }
@@ -61,8 +65,8 @@ func TestMount_RegistersBothEndpoints(t *testing.T) {
 	h.Mount(mux)
 
 	for path, wantStatus := range map[string]int{
-		"/healthz": http.StatusOK,
-		"/readyz":  http.StatusOK,
+		"/healthz":    http.StatusOK,
+		readinessPath: http.StatusOK,
 	} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -79,4 +83,51 @@ func TestSetReady_ConcurrentSafe(t *testing.T) {
 		go func() { defer wg.Done(); _ = h.IsReady() }()
 	}
 	wg.Wait()
+}
+
+func TestMountedProbeHTTPContract(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		for _, path := range []string{"/healthz", readinessPath} {
+			for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
+				t.Run(fmt.Sprintf("%t/%s/%s", ready, path, method), func(t *testing.T) {
+					healthState := health.New()
+					healthState.SetReady(ready)
+					mux := http.NewServeMux()
+					healthState.Mount(mux)
+					server := httptest.NewServer(mux)
+					t.Cleanup(server.Close)
+					request, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, nil)
+					require.NoError(t, err)
+					response, err := server.Client().Do(request)
+					require.NoError(t, err)
+					defer func() { require.NoError(t, response.Body.Close()) }()
+					body, err := io.ReadAll(response.Body)
+					require.NoError(t, err)
+					if method == http.MethodPost {
+						require.Equal(t, http.StatusMethodNotAllowed, response.StatusCode)
+						require.Contains(t, response.Header.Get("Allow"), http.MethodGet)
+						require.Contains(t, response.Header.Get("Allow"), http.MethodHead)
+						return
+					}
+					expectedStatus := http.StatusOK
+					expectedBody := "ok"
+					if path == readinessPath {
+						expectedBody = "ready"
+						if !ready {
+							expectedStatus = http.StatusServiceUnavailable
+							expectedBody = "not ready"
+						}
+					}
+					require.Equal(t, expectedStatus, response.StatusCode)
+					require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+					require.Equal(t, "text/plain; charset=utf-8", response.Header.Get("Content-Type"))
+					if method == http.MethodHead {
+						require.Empty(t, body)
+					} else {
+						require.Equal(t, expectedBody, string(body))
+					}
+				})
+			}
+		}
+	}
 }

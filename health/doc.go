@@ -1,29 +1,18 @@
-// Package health serves Kubernetes-style /healthz and /readyz HTTP
-// endpoints for Giant Swarm MCP servers.
+// Package health provides Kubernetes-style liveness and readiness handlers.
 //
-// # When to use this package
+// Liveness reports whether the HTTP handler can respond. It does not detect
+// stalled workers or guarantee that requests can complete. Restart-triggering
+// checks should identify failures that restarting the process can repair.
 //
-// MCP servers that don't otherwise depend on Kubernetes libraries
-// (mcp-opsgenie, mcp-runbooks, search-mcp, …). It has no transitive
-// dependencies beyond the standard library.
+// Readiness starts false. Call SetReady(true) once initialization completes,
+// and SetReady(false) before initiating HTTP shutdown. Dependencies used by
+// in-flight requests must remain available until draining completes.
 //
-// MCP servers that already pull in sigs.k8s.io/controller-runtime —
-// because they run controllers or informers (e.g. mcp-observability-
-// platform, muster) — should prefer controller-runtime's own healthz
-// primitives at sigs.k8s.io/controller-runtime/pkg/healthz. The cost
-// is already paid, and they integrate with the manager's lifecycle.
+// Dependency checks depend on whether useful requests can still be served.
+// Avoid withdrawing every replica for a shared dependency outage when the
+// application can continue serving useful responses. Keep probes inexpensive
+// and avoid disclosing dependency errors or credentials in their responses.
 //
-// # Liveness and readiness semantics
-//
-// /healthz is unconditional 200: the only legitimate reason to fail
-// liveness is a deadlock the kubelet should restart the pod over,
-// which a static handler cannot detect anyway. Liveness must never
-// flap.
-//
-// /readyz reads a single atomic ready flag toggled by the server.
-// Servers call SetReady(true) once initialization is complete and
-// SetReady(false) when graceful shutdown begins. Readiness is
-// deliberately pod-local — probing shared downstreams from /readyz
-// is a foot-gun: a transient hiccup in the downstream flips every
-// replica's /readyz at once and the Service yanks its last endpoint.
+// Consumers already using controller-runtime's manager should prefer its
+// healthz primitives and lifecycle integration rather than another manager.
 package health
