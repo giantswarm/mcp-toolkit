@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -159,4 +160,58 @@ func TestRunTimeoutLeavesConnectionsOpen(t *testing.T) {
 	require.NoError(t, server.Close())
 	receive(t, disconnected)
 	require.Error(t, receive(t, clientDone))
+}
+
+func TestRunSharesProcessDeadline(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	var calls atomic.Int32
+	var process context.Context
+	server, address, cancel, done := startServer(t, http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(entered)
+		select {
+		case <-release:
+		case <-request.Context().Done():
+		}
+	}), func(ctx context.Context, server *http.Server) error {
+		return httpx.RunWithShutdownContext(ctx, server, time.Minute, func() context.Context {
+			calls.Add(1)
+			var cancel context.CancelFunc
+			process, cancel = context.WithTimeout(t.Context(), 25*time.Millisecond)
+			t.Cleanup(cancel)
+			return process
+		})
+	})
+	require.Zero(t, calls.Load())
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+address+"/work", nil)
+		if err != nil {
+			return
+		}
+		response, _ := http.DefaultClient.Do(request)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+	}()
+	receive(t, entered)
+	cancel()
+	require.ErrorIs(t, receive(t, done), context.DeadlineExceeded)
+	require.Equal(t, int32(1), calls.Load())
+	require.ErrorIs(t, process.Err(), context.DeadlineExceeded)
+	require.NoError(t, server.Close())
+	receive(t, clientDone)
+}
+
+func TestRunShutdownFactoryValidationAndBindFailure(t *testing.T) {
+	require.Error(t, httpx.RunWithShutdownContext(t.Context(), &http.Server{ReadHeaderTimeout: time.Second}, time.Second, nil))
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, listener.Close()) }()
+	calls := 0
+	err = httpx.RunWithShutdownContext(t.Context(), &http.Server{Addr: listener.Addr().String(), ReadHeaderTimeout: time.Second}, time.Second, func() context.Context { calls++; return t.Context() })
+	require.Error(t, err)
+	require.Zero(t, calls)
 }
