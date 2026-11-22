@@ -2,7 +2,6 @@ package brand_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -25,7 +24,7 @@ const dataURIPrefix = "data:image/svg+xml;base64,"
 const musterIconLimit = 64 << 10
 
 func TestGiantSwarmIcon_DataURIDecodesToTheLogo(t *testing.T) {
-	want, err := os.ReadFile("giantswarm.svg")
+	want, err := os.ReadFile("../internal/brand/giantswarm.svg")
 	require.NoError(t, err)
 
 	icon := brand.GiantSwarmIcon()
@@ -95,7 +94,7 @@ func initializeIcons(t *testing.T, opt server.ServerOption) []mcp.Icon {
 	t.Helper()
 	s := server.NewMCPServer("test", "0", opt)
 
-	resp := s.HandleMessage(context.Background(), json.RawMessage(`{
+	resp := s.HandleMessage(t.Context(), json.RawMessage(`{
 		"jsonrpc": "2.0",
 		"id": 1,
 		"method": "initialize",
