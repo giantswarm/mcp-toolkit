@@ -19,6 +19,7 @@ Successful patterns from this module are upstream candidates for `mark3labs/mcp-
 
 | Path | Purpose |
 |---|---|
+| [`k8s`](./k8s) (separate Go module) | Caller-bound client-go clients and SelfSubjectAccessReviews, with explicit transport wrappers and expiry-aware caching. |
 | [`middleware/responsecap`](./middleware/responsecap) | Reject oversized tool responses with a typed `response_too_large` error and `IsError = true`, instead of letting the LLM consume truncated-but-syntactically-valid output. |
 | [`middleware/timeout`](./middleware/timeout) | Per-tool-call `context.WithTimeout` middleware. On deadline, returns an `IsError` `CallToolResult` containing `tool X exceeded timeout of Ys` rather than a silent hang or generic context error. Parent-context cancellation propagates unchanged. |
 | [`health`](./health) | Stdlib-only `/healthz` (unconditional 200) and `/readyz` (atomic `SetReady` flag) HTTP handlers. Liveness can't flap; readiness is pod-local so downstream hiccups don't yank every replica's endpoint at once. |
