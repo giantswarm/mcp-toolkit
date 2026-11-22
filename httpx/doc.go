@@ -1,6 +1,6 @@
 // Package httpx provides HTTP serving and bounded graceful draining using
-// net/http. Run preserves active connections after a drain timeout;
-// RunWithOptions can close them explicitly with ForceCloseOnTimeout.
+// net/http. Run preserves active connections after a drain timeout. Callers
+// decide whether to close remaining HTTP connections after the shutdown deadline.
 //
 // Callers own readiness, signal handling, application jobs and dependent
 // resources. Revoke readiness before canceling the serving context, drain HTTP

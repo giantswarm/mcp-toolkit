@@ -88,12 +88,15 @@ func TestSetReady_ConcurrentSafe(t *testing.T) {
 func TestMountedProbeHTTPContract(t *testing.T) {
 	for _, ready := range []bool{false, true} {
 		for _, path := range []string{"/healthz", readinessPath} {
-			for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
+			for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions, http.MethodPatch} {
 				t.Run(fmt.Sprintf("%t/%s/%s", ready, path, method), func(t *testing.T) {
 					healthState := health.New()
 					healthState.SetReady(ready)
 					mux := http.NewServeMux()
 					healthState.Mount(mux)
+					mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+						w.WriteHeader(http.StatusAccepted)
+					})
 					server := httptest.NewServer(mux)
 					t.Cleanup(server.Close)
 					request, err := http.NewRequestWithContext(t.Context(), method, server.URL+path, nil)
@@ -103,10 +106,10 @@ func TestMountedProbeHTTPContract(t *testing.T) {
 					defer func() { require.NoError(t, response.Body.Close()) }()
 					body, err := io.ReadAll(response.Body)
 					require.NoError(t, err)
-					if method == http.MethodPost {
+					require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+					if method != http.MethodGet && method != http.MethodHead {
 						require.Equal(t, http.StatusMethodNotAllowed, response.StatusCode)
-						require.Contains(t, response.Header.Get("Allow"), http.MethodGet)
-						require.Contains(t, response.Header.Get("Allow"), http.MethodHead)
+						require.Equal(t, "GET, HEAD", response.Header.Get("Allow"))
 						return
 					}
 					expectedStatus := http.StatusOK
@@ -119,7 +122,6 @@ func TestMountedProbeHTTPContract(t *testing.T) {
 						}
 					}
 					require.Equal(t, expectedStatus, response.StatusCode)
-					require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
 					require.Equal(t, "text/plain; charset=utf-8", response.Header.Get("Content-Type"))
 					if method == http.MethodHead {
 						require.Empty(t, body)

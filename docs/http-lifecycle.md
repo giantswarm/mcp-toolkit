@@ -23,24 +23,24 @@ Applications using controller-runtime can retain its health and lifecycle suppor
 ## Connection draining
 
 `httpx.Run` drains on context cancellation and returns a shutdown timeout
-without closing active connections. Consumers that need bounded connection
-lifetimes can opt in:
+without closing active connections. Consumers decide whether to close remaining
+HTTP connections after the shutdown deadline using the standard library:
 
 ```go
-err := httpx.RunWithOptions(servingContext, server, httpx.RunOptions{
-    ShutdownTimeout:     15 * time.Second,
-    ForceCloseOnTimeout: true,
-})
+err := httpx.Run(servingContext, server, 15*time.Second)
+if errors.Is(err, context.DeadlineExceeded) {
+    err = errors.Join(err, server.Close())
+}
 ```
 
-A zero timeout uses the five-second default. Forced closure preserves the
-shutdown deadline error for `errors.Is(err, context.DeadlineExceeded)`.
+A zero timeout uses the five-second default. The caller retains the shutdown
+deadline error when combining it with a connection closure error.
 
 The caller controls resource ordering:
 
 1. Revoke readiness before canceling the serving context.
 2. Drain HTTP while authentication stores and other request dependencies remain usable.
-3. After the drain deadline, close remaining ordinary HTTP connections when opted in.
+3. After the drain deadline, close remaining ordinary HTTP connections when the application requires it.
 4. Complete application cleanup and flush telemetry within the total termination budget.
 
 Separate listener contexts allow MCP traffic to drain before observability
