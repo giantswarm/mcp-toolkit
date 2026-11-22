@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 )
 
-// Health serves /healthz (unconditional 200) and /readyz (200 if the
+// Health serves GET and HEAD on /healthz (200) and /readyz (200 if the
 // server has called SetReady(true) and not since revoked it; 503
 // otherwise).
 //
@@ -31,22 +31,26 @@ func (h *Health) IsReady() bool {
 	return h.ready.Load()
 }
 
-// Mount registers /healthz and /readyz on mux.
+// Mount reserves /healthz and /readyz on mux for all methods.
 func (h *Health) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", h.Liveness)
 	mux.HandleFunc("/readyz", h.Readiness)
 }
 
-// Liveness is the /healthz handler: always 200.
-func (h *Health) Liveness(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+// Liveness returns 200 for GET and HEAD, or 405 for unsupported methods.
+func (h *Health) Liveness(w http.ResponseWriter, request *http.Request) {
+	if !allowProbeMethod(w, request) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }
 
-// Readiness is the /readyz handler: 200 when ready, 503 when not.
-func (h *Health) Readiness(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+// Readiness returns 200 when ready, 503 when not, or 405 for unsupported methods.
+func (h *Health) Readiness(w http.ResponseWriter, request *http.Request) {
+	if !allowProbeMethod(w, request) {
+		return
+	}
 	if h.ready.Load() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
@@ -54,4 +58,15 @@ func (h *Health) Readiness(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_, _ = w.Write([]byte("not ready"))
+}
+
+func allowProbeMethod(w http.ResponseWriter, request *http.Request) bool {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
 }

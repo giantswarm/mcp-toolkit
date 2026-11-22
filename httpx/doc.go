@@ -1,11 +1,19 @@
-// Package httpx provides a small graceful-shutdown wrapper around
-// net/http for Giant Swarm MCP servers.
+// Package httpx provides HTTP serving and bounded graceful draining using
+// net/http. Run preserves active connections after a drain timeout. Callers
+// decide whether to close remaining HTTP connections after the shutdown deadline.
 //
-// Run starts srv.ListenAndServe in a goroutine and blocks until
-// either the parent context is canceled (in which case it calls
-// srv.Shutdown) or the server itself returns an error.
+// Callers own readiness, signal handling, application jobs and dependent
+// resources. Revoke readiness before canceling the serving context, drain HTTP
+// while dependencies remain usable, then close dependencies and flush telemetry.
+// RegisterOnShutdown callbacks execute asynchronously and cannot enforce this
+// ordering. Separate listeners can use separate contexts to control drain order.
 //
-// For TLS or custom listeners, configure srv.TLSConfig or call
-// srv.Serve(listener) yourself in a small wrapper — this package
-// deliberately does not abstract listener choice.
+// A drain deadline is part of the total process termination budget, which must
+// also cover termination hooks, application cleanup and telemetry flushing.
+// Closing ordinary HTTP connections cancels their request contexts but cannot
+// stop handlers that ignore cancellation. Hijacked connections and SDK-specific
+// streaming cleanup remain the caller's responsibility.
+//
+// Serving uses ListenAndServe. TLS and custom listeners require a separate
+// serving implementation using the standard library.
 package httpx
