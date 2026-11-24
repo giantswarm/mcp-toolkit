@@ -22,7 +22,8 @@ and errors for failed or unevaluable reviews. Consumers filter application-owned
 reads on this result and retain their own public error representations.
 
 Run checks independently with `GOWORK=off go test -race ./...`. The tests in
-`envtest_test.go` run against a real kube-apiserver with RBAC when
-`KUBEBUILDER_ASSETS` points at envtest binaries, and skip with `-short` or
-without it. Source releases use `k8s/vX.Y.Z` tags through devctl's generated
-nested-module workflow.
+`envtest_test.go` skip unless `KUBEBUILDER_ASSETS` is set, and always with
+`-short`. `make test-envtest` at the repository root downloads the envtest
+binaries and runs them against a real kube-apiserver with RBAC. CI runs that
+target in `.github/workflows/k8s-envtest.yaml`. Source releases use
+`k8s/vX.Y.Z` tags through devctl's generated nested-module workflow.
