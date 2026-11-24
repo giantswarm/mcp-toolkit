@@ -15,21 +15,32 @@ import (
 	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 )
 
+var errLapsed = errors.New("lapsed")
+
 // fakeSealer binds the state to the user and call in clear text: enough to
-// show the Prompter passes them, without depending on a real sealer.
-type fakeSealer struct{}
+// show the Elicitor passes them, without depending on a real sealer.
+type fakeSealer struct {
+	ttl     time.Duration
+	lapsed  bool
+	sealIDs int
+}
 
 type sealed struct {
 	Issuer, Subject, Call string
 	Payload               []byte
 }
 
-func (fakeSealer) Seal(issuer, subject, call string, payload []byte, _ time.Duration) (string, error) {
+func (f *fakeSealer) Seal(issuer, subject, call string, payload []byte, ttl time.Duration) (string, error) {
+	f.ttl = ttl
+	f.sealIDs++
 	raw, err := json.Marshal(sealed{issuer, subject, call, payload})
 	return base64.RawURLEncoding.EncodeToString(raw), err
 }
 
-func (fakeSealer) Open(issuer, subject, call, value string) ([]byte, error) {
+func (f *fakeSealer) Open(issuer, subject, call, value string) ([]byte, error) {
+	if f.lapsed {
+		return nil, errLapsed
+	}
 	raw, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		return nil, err
@@ -70,7 +81,7 @@ var (
 	alice  = urlelicitation.Identity{Issuer: "https://dex.example", Subject: "alice"}
 	bob    = urlelicitation.Identity{Issuer: "https://dex.example", Subject: "bob"}
 	urlCap = mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{URL: &struct{}{}}}
-	signIn = urlelicitation.Request{Key: "sign_in", Message: "Sign in to GitHub for workspace-manager.", URL: "https://github.example/login/oauth/authorize?state=x"}
+	signIn = urlelicitation.URLParams{Key: "sign_in", Message: "Sign in to GitHub for workspace-manager.", URL: "https://github.example/login/oauth/authorize?state=x"}
 )
 
 func modern(t *testing.T, capabilities mcp.ClientCapabilities) context.Context {
@@ -88,10 +99,10 @@ func call(name string, args map[string]any) mcp.CallToolRequest {
 	return req
 }
 
-func prompter(t *testing.T) *urlelicitation.Prompter {
-	p, err := urlelicitation.New(fakeSealer{}, 0)
+func elicitor(t *testing.T, sealer urlelicitation.Sealer, opts ...urlelicitation.Option) *urlelicitation.Elicitor {
+	e, err := urlelicitation.New(sealer, opts...)
 	require.NoError(t, err)
-	return p
+	return e
 }
 
 func retry(req mcp.CallToolRequest, res *mcp.CallToolResult, key string, action mcp.ElicitationResponseAction) mcp.CallToolRequest {
@@ -100,82 +111,161 @@ func retry(req mcp.CallToolRequest, res *mcp.CallToolResult, key string, action 
 	return req
 }
 
-func TestAskModern(t *testing.T) {
-	p := prompter(t)
+func requireInvalidParams(t *testing.T, err error, sentinel error) {
+	t.Helper()
+	require.ErrorIs(t, err, sentinel)
+	var provider server.JSONRPCErrorProvider
+	require.ErrorAs(t, err, &provider)
+	require.Equal(t, mcp.INVALID_PARAMS, provider.JSONRPCError().Error.Code)
+}
+
+func TestElicitModern(t *testing.T) {
+	e := elicitor(t, &fakeSealer{})
 	ctx := modern(t, urlCap)
 	req := call(tool, argsA)
 
-	res, err := p.Ask(ctx, req, alice, signIn, []byte("resume here"))
+	res, err := e.Elicit(ctx, req, alice, signIn, []byte("resume here"))
 	require.NoError(t, err)
 	require.True(t, res.NeedsInput())
 	require.Equal(t, mcp.ElicitationModeURL, res.InputRequests["sign_in"].Elicitation.Mode)
 	require.Equal(t, signIn.URL, res.InputRequests["sign_in"].Elicitation.URL)
 	require.Empty(t, res.InputRequests["sign_in"].Elicitation.ElicitationID)
 
-	answer, err := p.Answer(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept), alice, "sign_in")
+	result, err := e.Result(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept), alice)
 	require.NoError(t, err)
-	require.Equal(t, mcp.ElicitationResponseActionAccept, answer.Action)
-	require.Equal(t, []byte("resume here"), answer.State)
+	require.Equal(t, "sign_in", result.Key)
+	require.Equal(t, mcp.ElicitationResponseActionAccept, result.Action)
+	require.Equal(t, []byte("resume here"), result.State)
 
-	answer, err = p.Answer(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionDecline), alice, "sign_in")
+	result, err = e.Result(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionDecline), alice)
 	require.NoError(t, err)
-	require.Equal(t, mcp.ElicitationResponseActionDecline, answer.Action)
+	require.Equal(t, mcp.ElicitationResponseActionDecline, result.Action)
 }
 
-func TestAnswerRefuses(t *testing.T) {
-	p := prompter(t)
+func TestElicitTTL(t *testing.T) {
+	for name, tc := range map[string]struct {
+		opts []urlelicitation.Option
+		want time.Duration
+	}{
+		"default":     {nil, urlelicitation.DefaultTTL},
+		"set":         {[]urlelicitation.Option{urlelicitation.WithTTL(time.Minute)}, time.Minute},
+		"nonpositive": {[]urlelicitation.Option{urlelicitation.WithTTL(-time.Minute)}, urlelicitation.DefaultTTL},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sealer := &fakeSealer{}
+			_, err := elicitor(t, sealer, tc.opts...).Elicit(modern(t, urlCap), call(tool, nil), alice, signIn, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, sealer.ttl)
+		})
+	}
+}
+
+func TestElicitRefusesRelayKey(t *testing.T) {
+	p := signIn
+	p.Key = urlelicitation.RelayKey
+	_, err := elicitor(t, &fakeSealer{}).Elicit(modern(t, urlCap), call(tool, nil), alice, p, nil)
+	require.Error(t, err)
+}
+
+func TestResultRejects(t *testing.T) {
+	e := elicitor(t, &fakeSealer{})
 	ctx := modern(t, urlCap)
 	req := call(tool, argsA)
-	res, err := p.Ask(ctx, req, alice, signIn, nil)
+	res, err := e.Elicit(ctx, req, alice, signIn, nil)
 	require.NoError(t, err)
 	accepted := retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept)
 
 	otherCall := retry(call(tool, argsB), res, "sign_in", mcp.ElicitationResponseActionAccept)
 	changed := accepted
 	changed.Params.RequestState = "x" + accepted.Params.RequestState
-	noResponse := accepted
-	noResponse.Params.InputResponses = nil
+	unknownAction := retry(req, res, "sign_in", "maybe")
 
 	for name, tc := range map[string]struct {
-		req mcp.CallToolRequest
-		who urlelicitation.Identity
+		req      mcp.CallToolRequest
+		who      urlelicitation.Identity
+		sentinel error
 	}{
-		"another user":      {accepted, bob},
-		"another call":      {otherCall, alice},
-		"changed state":     {changed, alice},
-		"no input response": {noResponse, alice},
+		"another user":   {accepted, bob, urlelicitation.ErrInvalidRequestState},
+		"another call":   {otherCall, alice, urlelicitation.ErrInvalidRequestState},
+		"changed state":  {changed, alice, urlelicitation.ErrInvalidRequestState},
+		"unknown action": {unknownAction, alice, urlelicitation.ErrInvalidResponse},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := p.Answer(ctx, tc.req, tc.who, "sign_in")
-			require.ErrorIs(t, err, urlelicitation.ErrInvalidAnswer)
+			_, err := e.Result(ctx, tc.req, tc.who)
+			requireInvalidParams(t, err, tc.sentinel)
 		})
 	}
 }
 
-func TestAnswerFirstCall(t *testing.T) {
-	answer, err := prompter(t).Answer(modern(t, urlCap), call(tool, nil), alice, "sign_in")
+func TestResultAsFirstCall(t *testing.T) {
+	sealer := &fakeSealer{}
+	e := elicitor(t, sealer, urlelicitation.WithExpired(func(err error) bool { return errors.Is(err, errLapsed) }))
+	ctx := modern(t, urlCap)
+	req := call(tool, argsA)
+	res, err := e.Elicit(ctx, req, alice, signIn, nil)
 	require.NoError(t, err)
-	require.Nil(t, answer)
+
+	noResponse := retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept)
+	noResponse.Params.InputResponses = nil
+
+	for name, req := range map[string]mcp.CallToolRequest{
+		"no requestState": call(tool, argsA),
+		"no response":     noResponse,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := e.Result(ctx, req, alice)
+			require.NoError(t, err)
+			require.Nil(t, result)
+		})
+	}
+
+	t.Run("lapsed", func(t *testing.T) {
+		sealer.lapsed = true
+		result, err := e.Result(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept), alice)
+		require.NoError(t, err)
+		require.Nil(t, result)
+	})
 }
 
-func TestAskLegacy(t *testing.T) {
-	res, err := prompter(t).Ask(legacy(t, urlCap), call(tool, nil), alice, signIn, []byte("dropped"))
-	require.Nil(t, res)
-	var required mcp.URLElicitationRequiredError
-	require.ErrorAs(t, err, &required)
-	require.Len(t, required.Elicitations, 1)
-	require.Equal(t, mcp.ElicitationModeURL, required.Elicitations[0].Mode)
-	require.Equal(t, signIn.URL, required.Elicitations[0].URL)
-	require.NotEmpty(t, required.Elicitations[0].ElicitationID)
+func TestResultLapsedWithoutExpiredOption(t *testing.T) {
+	sealer := &fakeSealer{}
+	e := elicitor(t, sealer)
+	ctx := modern(t, urlCap)
+	req := call(tool, argsA)
+	res, err := e.Elicit(ctx, req, alice, signIn, nil)
+	require.NoError(t, err)
+
+	sealer.lapsed = true
+	_, err = e.Result(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept), alice)
+	requireInvalidParams(t, err, urlelicitation.ErrInvalidRequestState)
 }
 
-func TestAskWithoutURLCapability(t *testing.T) {
+func TestElicitLegacy(t *testing.T) {
+	sealer := &fakeSealer{}
+	e := elicitor(t, sealer)
+	ids := map[string]bool{}
+	for range 2 {
+		res, err := e.Elicit(legacy(t, urlCap), call(tool, nil), alice, signIn, []byte("dropped"))
+		require.Nil(t, res)
+		var required mcp.URLElicitationRequiredError
+		require.ErrorAs(t, err, &required)
+		require.Len(t, required.Elicitations, 1)
+		require.Equal(t, mcp.ElicitationModeURL, required.Elicitations[0].Mode)
+		require.Equal(t, signIn.URL, required.Elicitations[0].URL)
+		require.NotEmpty(t, required.Elicitations[0].ElicitationID)
+		ids[required.Elicitations[0].ElicitationID] = true
+	}
+	require.Len(t, ids, 2)
+	require.Zero(t, sealer.sealIDs)
+}
+
+func TestElicitWithoutURLCapability(t *testing.T) {
 	for name, ctx := range map[string]context.Context{
 		"modern": modern(t, mcp.ClientCapabilities{}),
 		"legacy": legacy(t, mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{}}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			res, err := prompter(t).Ask(ctx, call(tool, nil), alice, signIn, nil)
+			res, err := elicitor(t, &fakeSealer{}).Elicit(ctx, call(tool, nil), alice, signIn, nil)
 			require.NoError(t, err)
 			require.True(t, res.IsError)
 			require.False(t, res.NeedsInput())
@@ -185,66 +275,84 @@ func TestAskWithoutURLCapability(t *testing.T) {
 			link, ok := res.Content[1].(mcp.ResourceLink)
 			require.True(t, ok)
 			require.Equal(t, signIn.URL, link.URI)
+			require.Empty(t, link.MIMEType)
 		})
 	}
 }
 
-func TestAskRefusesUnsafeURLs(t *testing.T) {
+func TestElicitRefusesUnsafeURLs(t *testing.T) {
 	for _, raw := range []string{"http://github.example/login", "https://user:pw@github.example/", "/relative", "javascript:alert(1)"} {
-		r := signIn
-		r.URL = raw
-		_, err := prompter(t).Ask(modern(t, urlCap), call("t", nil), alice, r, nil)
+		p := signIn
+		p.URL = raw
+		_, err := elicitor(t, &fakeSealer{}).Elicit(modern(t, urlCap), call("t", nil), alice, p, nil)
 		require.Error(t, err, raw)
 	}
 }
 
 func TestRelayRoundTrip(t *testing.T) {
-	p := prompter(t)
+	e := elicitor(t, &fakeSealer{})
 	ctx := modern(t, urlCap)
-	downstream := server.NewInputRequestBuilder("muster-state").Elicit("muster_sign_in", mcp.ElicitationParams{
-		Mode: mcp.ElicitationModeURL, Message: "Sign in to workspace-manager.", URL: "https://muster.example/oauth/start?s=1",
+	called := server.NewInputRequestBuilder("muster-state").Elicit("muster_sign_in", mcp.ElicitationParams{
+		Mode: mcp.ElicitationModeURL, Message: "Sign in to GitHub for workspace-manager.", URL: "https://muster.example/oauth/start?s=1",
 	}).ToolResult()
 
-	d, err := urlelicitation.FromResult(downstream)
+	relayed, err := urlelicitation.FromInputRequired(called)
 	require.NoError(t, err)
-	require.Equal(t, "muster_sign_in", d.Key)
-	require.Equal(t, "muster-state", d.RequestState)
+	require.Equal(t, "muster_sign_in", relayed.Key)
+	require.Equal(t, "muster-state", relayed.RequestState)
 
 	req := call(tool, argsA)
-	res, err := p.Relay(ctx, req, alice, "authorize_workspace", d)
+	res, err := e.Relay(ctx, req, alice, "authorize_workspace", relayed)
 	require.NoError(t, err)
-	require.Equal(t, d.URL, res.InputRequests[urlelicitation.RelayKey].Elicitation.URL)
-	require.Equal(t, d.Message, res.InputRequests[urlelicitation.RelayKey].Elicitation.Message)
+	require.Equal(t, relayed.URL, res.InputRequests[urlelicitation.RelayKey].Elicitation.URL)
+	require.Equal(t, relayed.Message, res.InputRequests[urlelicitation.RelayKey].Elicitation.Message)
 
-	resumed, err := p.Resume(ctx, retry(req, res, urlelicitation.RelayKey, mcp.ElicitationResponseActionAccept), alice)
+	result, err := e.Result(ctx, retry(req, res, urlelicitation.RelayKey, mcp.ElicitationResponseActionAccept), alice)
 	require.NoError(t, err)
-	require.Equal(t, "authorize_workspace", resumed.Target)
-	require.Equal(t, mcp.ElicitationResponseActionAccept, resumed.Action)
-	require.Equal(t, "muster-state", resumed.Params.RequestState)
-	answer := resumed.Params.InputResponses["muster_sign_in"]
+	require.Equal(t, urlelicitation.RelayKey, result.Key)
+	r, err := result.Retry()
+	require.NoError(t, err)
+	require.Equal(t, "authorize_workspace", r.Target)
+	require.Equal(t, mcp.ElicitationResponseActionAccept, r.Action)
+	require.Equal(t, "muster-state", r.Params.RequestState)
+	answer := r.Params.InputResponses["muster_sign_in"]
 	require.NoError(t, answer.DecodeFor(mcp.MethodElicitationCreate))
 	require.Equal(t, mcp.ElicitationResponseActionAccept, answer.Elicitation.Action)
 
-	_, err = p.Resume(ctx, retry(req, res, urlelicitation.RelayKey, mcp.ElicitationResponseActionAccept), bob)
-	require.ErrorIs(t, err, urlelicitation.ErrInvalidAnswer)
+	_, err = e.Result(ctx, retry(req, res, urlelicitation.RelayKey, mcp.ElicitationResponseActionAccept), bob)
+	requireInvalidParams(t, err, urlelicitation.ErrInvalidRequestState)
 }
 
-func TestFromResult(t *testing.T) {
-	d, err := urlelicitation.FromResult(mcp.NewToolResultText("done"))
+func TestRetryOfOwnElicitation(t *testing.T) {
+	e := elicitor(t, &fakeSealer{})
+	ctx := modern(t, urlCap)
+	req := call(tool, argsA)
+	res, err := e.Elicit(ctx, req, alice, signIn, nil)
 	require.NoError(t, err)
-	require.Nil(t, d)
+
+	result, err := e.Result(ctx, retry(req, res, "sign_in", mcp.ElicitationResponseActionAccept), alice)
+	require.NoError(t, err)
+	require.Equal(t, "sign_in", result.Key)
+	_, err = result.Retry()
+	require.Error(t, err)
+}
+
+func TestFromInputRequired(t *testing.T) {
+	relayed, err := urlelicitation.FromInputRequired(mcp.NewToolResultText("done"))
+	require.NoError(t, err)
+	require.Nil(t, relayed)
 
 	form := server.NewInputRequestBuilder("").Elicit("k", mcp.ElicitationParams{Message: "name?"}).ToolResult()
-	_, err = urlelicitation.FromResult(form)
+	_, err = urlelicitation.FromInputRequired(form)
 	require.Error(t, err)
 
 	plainHTTP := server.NewInputRequestBuilder("").Elicit("k", mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "m", URL: "http://x.example"}).ToolResult()
-	_, err = urlelicitation.FromResult(plainHTTP)
+	_, err = urlelicitation.FromInputRequired(plainHTTP)
 	require.Error(t, err)
 
 	two := server.NewInputRequestBuilder("").
 		Elicit("a", mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "m", URL: "https://a.example"}).
 		Elicit("b", mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "m", URL: "https://b.example"}).ToolResult()
-	_, err = urlelicitation.FromResult(two)
+	_, err = urlelicitation.FromInputRequired(two)
 	require.Error(t, err)
 }

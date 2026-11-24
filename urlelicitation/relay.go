@@ -3,49 +3,50 @@ package urlelicitation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// RelayKey is the inputRequests key a relayed request is asked under.
+// RelayKey is the inputRequests key a relayed elicitation is sent under.
 const RelayKey = "relayed_url"
 
-// Downstream is a URL a server the tool called asks the person to open, and
-// what that server needs back on the retry.
-type Downstream struct {
-	// Key is the server's own inputRequests key.
+// Relayed is a URL elicitation a server the tool called sent, and what that
+// server needs back on the retry.
+type Relayed struct {
+	// Key is the called server's own inputRequests key.
 	Key string
-	// Message and URL are the server's own.
+	// Message and URL are the called server's own.
 	Message string
 	URL     string
-	// RequestState is the server's own, echoed back to it as is.
+	// RequestState is the called server's own, echoed back to it as is.
 	RequestState string
 }
 
-// FromResult reads the URL request of a tools/call result a called server
-// answered with. It returns nil for a result that needs no input, and an
-// error for one that asks for anything but exactly one URL elicitation with
-// an https URL.
-func FromResult(res *mcp.CallToolResult) (*Downstream, error) {
+// FromInputRequired reads the URL elicitation of a tools/call result a
+// called server answered with. It returns nil for a result that needs no
+// input, and an error for one that asks for anything but exactly one URL
+// elicitation with an https URL.
+func FromInputRequired(res *mcp.CallToolResult) (*Relayed, error) {
 	if !res.NeedsInput() {
 		return nil, nil
 	}
 	if len(res.InputRequests) != 1 {
 		return nil, fmt.Errorf("urlelicitation: the called server asks for %d inputs, want one URL elicitation", len(res.InputRequests))
 	}
-	for key, input := range res.InputRequests {
-		e := input.Elicitation
-		if input.Method != mcp.MethodElicitationCreate || e == nil || e.Mode != mcp.ElicitationModeURL {
-			return nil, fmt.Errorf("urlelicitation: the called server asks for %s, want a URL elicitation", input.Method)
-		}
-		if err := ValidURL(e.URL); err != nil {
-			return nil, err
-		}
-		return &Downstream{Key: key, Message: e.Message, URL: e.URL, RequestState: res.RequestState}, nil
+	var key string
+	var input mcp.InputRequest
+	for k, in := range res.InputRequests {
+		key, input = k, in
 	}
-	return nil, errors.New("urlelicitation: unreachable")
+	e := input.Elicitation
+	if input.Method != mcp.MethodElicitationCreate || e == nil || e.Mode != mcp.ElicitationModeURL {
+		return nil, fmt.Errorf("urlelicitation: the called server asks for %s, want a URL elicitation", input.Method)
+	}
+	if err := validateURL(e.URL); err != nil {
+		return nil, err
+	}
+	return &Relayed{Key: key, Message: e.Message, URL: e.URL, RequestState: res.RequestState}, nil
 }
 
 type relayState struct {
@@ -54,20 +55,22 @@ type relayState struct {
 	RequestState string `json:"s,omitempty"`
 }
 
-// Relay asks the tool's caller to open d's URL. target names the called
-// server's call, so the retry goes back to it; the state carrying it and d's
-// requestState is sealed for the caller and this call.
-func (p *Prompter) Relay(ctx context.Context, req mcp.CallToolRequest, who Identity, target string, d *Downstream) (*mcp.CallToolResult, error) {
-	state, err := json.Marshal(relayState{Target: target, Key: d.Key, RequestState: d.RequestState})
+// Relay asks the tool's caller to open r's URL. target names the called
+// server's call, so the retry goes back to it; the state carrying it and r's
+// requestState is sealed for the caller and this call. Relay only third-party
+// sign-ins: a called server's sign-in to itself is MCP authorization, not URL
+// elicitation.
+func (e *Elicitor) Relay(ctx context.Context, req mcp.CallToolRequest, who Identity, target string, r *Relayed) (*mcp.CallToolResult, error) {
+	state, err := json.Marshal(relayState{Target: target, Key: r.Key, RequestState: r.RequestState})
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: relay state: %w", err)
 	}
-	return p.Ask(ctx, req, who, Request{Key: RelayKey, Message: d.Message, URL: d.URL}, state)
+	return e.elicit(ctx, req, who, URLParams{Key: RelayKey, Message: r.Message, URL: r.URL}, state)
 }
 
-// Resumption is the caller's answer to a relayed request, as the called
-// server expects it on the retry.
-type Resumption struct {
+// Retry is the caller's answer to a relayed elicitation, as the called server
+// expects it on the retry.
+type Retry struct {
 	// Target is what Relay was given.
 	Target string
 	// Action is the person's answer.
@@ -76,24 +79,24 @@ type Resumption struct {
 	Params mcp.MultiRoundTripParams
 }
 
-// Resume reads a 2026-07-28 retry of a call Relay answered. It returns nil
-// for a call that carries no requestState. On decline or cancel the tool
-// should run nothing and say so; on accept it retries target with Params.
-func (p *Prompter) Resume(ctx context.Context, req mcp.CallToolRequest, who Identity) (*Resumption, error) {
-	answer, err := p.Answer(ctx, req, who, RelayKey)
-	if err != nil || answer == nil {
-		return nil, err
+// Retry turns the result of an elicitation Relay sent, under [RelayKey],
+// into the retry of the called server's call. On decline or cancel the tool
+// runs nothing and says so; on accept it retries Target with Params, and the
+// called server decides whether its flow completed.
+func (r *Result) Retry() (*Retry, error) {
+	if r.Key != RelayKey {
+		return nil, fmt.Errorf("urlelicitation: the result under %q is not a relayed elicitation", r.Key)
 	}
 	var state relayState
-	if err := json.Unmarshal(answer.State, &state); err != nil || state.Target == "" || state.Key == "" {
-		return nil, fmt.Errorf("%w: relay state", ErrInvalidAnswer)
+	if err := json.Unmarshal(r.State, &state); err != nil || state.Target == "" || state.Key == "" {
+		return nil, invalidParams(fmt.Errorf("%w: relay state", ErrInvalidRequestState))
 	}
-	return &Resumption{
+	return &Retry{
 		Target: state.Target,
-		Action: answer.Action,
+		Action: r.Action,
 		Params: mcp.MultiRoundTripParams{
 			InputResponses: mcp.InputResponses{state.Key: mcp.NewElicitationInputResponse(mcp.ElicitationResult{
-				ElicitationResponse: mcp.ElicitationResponse{Action: answer.Action},
+				ElicitationResponse: mcp.ElicitationResponse{Action: r.Action},
 			})},
 			RequestState: state.RequestState,
 		},
