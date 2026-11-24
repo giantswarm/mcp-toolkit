@@ -17,7 +17,11 @@ import (
 
 var errLapsed = errors.New("lapsed")
 
-// fakeSealer binds the state to the user and call in clear text: enough to
+// user stands in for the validated user type, such as mcp-oauth's
+// *providers.UserInfo.
+type user struct{ Issuer, Subject string }
+
+// fakeSealer binds the state to the user and request in clear text: enough to
 // show the Elicitor passes them, without depending on a real sealer.
 type fakeSealer struct {
 	ttl     time.Duration
@@ -26,18 +30,19 @@ type fakeSealer struct {
 }
 
 type sealed struct {
-	Issuer, Subject, Call string
-	Payload               []byte
+	User    user
+	Request string
+	Payload []byte
 }
 
-func (f *fakeSealer) Seal(issuer, subject, call string, payload []byte, ttl time.Duration) (string, error) {
+func (f *fakeSealer) Seal(u user, request string, payload []byte, ttl time.Duration) (string, error) {
 	f.ttl = ttl
 	f.sealIDs++
-	raw, err := json.Marshal(sealed{issuer, subject, call, payload})
+	raw, err := json.Marshal(sealed{u, request, payload})
 	return base64.RawURLEncoding.EncodeToString(raw), err
 }
 
-func (f *fakeSealer) Open(issuer, subject, call, value string) ([]byte, error) {
+func (f *fakeSealer) Open(u user, request, value string) ([]byte, error) {
 	if f.lapsed {
 		return nil, errLapsed
 	}
@@ -49,8 +54,8 @@ func (f *fakeSealer) Open(issuer, subject, call, value string) ([]byte, error) {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, err
 	}
-	if s.Issuer != issuer || s.Subject != subject || s.Call != call {
-		return nil, errors.New("not for this user and call")
+	if s.User != u || s.Request != request {
+		return nil, errors.New("not for this user and request")
 	}
 	return s.Payload, nil
 }
@@ -78,8 +83,8 @@ var (
 )
 
 var (
-	alice  = urlelicitation.Identity{Issuer: "https://dex.example", Subject: "alice"}
-	bob    = urlelicitation.Identity{Issuer: "https://dex.example", Subject: "bob"}
+	alice  = user{Issuer: "https://dex.example", Subject: "alice"}
+	bob    = user{Issuer: "https://dex.example", Subject: "bob"}
 	urlCap = mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{URL: &struct{}{}}}
 	signIn = urlelicitation.URLParams{Key: "sign_in", Message: "Sign in to GitHub for workspace-manager.", URL: "https://github.example/login/oauth/authorize?state=x"}
 )
@@ -99,7 +104,7 @@ func call(name string, args map[string]any) mcp.CallToolRequest {
 	return req
 }
 
-func elicitor(t *testing.T, sealer urlelicitation.Sealer, opts ...urlelicitation.Option) *urlelicitation.Elicitor {
+func elicitor(t *testing.T, sealer urlelicitation.Sealer[user], opts ...urlelicitation.Option) *urlelicitation.Elicitor[user] {
 	e, err := urlelicitation.New(sealer, opts...)
 	require.NoError(t, err)
 	return e
@@ -182,7 +187,7 @@ func TestResultRejects(t *testing.T) {
 
 	for name, tc := range map[string]struct {
 		req      mcp.CallToolRequest
-		who      urlelicitation.Identity
+		who      user
 		sentinel error
 	}{
 		"another user":   {accepted, bob, urlelicitation.ErrInvalidRequestState},
@@ -355,4 +360,10 @@ func TestFromInputRequired(t *testing.T) {
 		Elicit("b", mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "m", URL: "https://b.example"}).ToolResult()
 	_, err = urlelicitation.FromInputRequired(two)
 	require.Error(t, err)
+}
+
+func TestNewInfersUserType(t *testing.T) {
+	e, err := urlelicitation.New(&fakeSealer{})
+	require.NoError(t, err)
+	require.IsType(t, &urlelicitation.Elicitor[user]{}, e)
 }

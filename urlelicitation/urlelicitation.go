@@ -15,17 +15,22 @@
 //     resource_link from 2025-06-18.
 //
 // [Elicitor.Result] reads a 2026-07-28 retry. requestState is sealed by a
-// [Sealer], bound to the validated caller, to the call (method, tool name
-// and arguments) and to a TTL, so a caller cannot change it or present it
-// for another person or call. Within the TTL the same person can present it
-// again on the same call; a tool that must act at most once enforces that
-// itself. mcp-oauth's requeststate.Sealer implements [Sealer]:
+// [Sealer], bound to the validated caller, to the originating request
+// (method, tool name and arguments) and to a TTL, so a caller cannot change
+// it or present it for another person or request. Within the TTL the same
+// person can present it again on the same request; a tool that must act at
+// most once enforces that itself. The Sealer decides what of the caller it
+// binds: mcp-oauth's requeststate.Sealer implements Sealer[*providers.UserInfo]
+// and binds the issuer, subject, OAuth client and current actor:
 //
 //	sealer, err := oauthconfig.NewRequestStateSealerFromEnv()
 //	...
 //	elicitor, err := urlelicitation.New(sealer, urlelicitation.WithExpired(func(err error) bool {
 //		return errors.Is(err, requeststate.ErrExpired)
 //	}))
+//	...
+//	user, _ := handler.UserInfoFromContext(ctx)
+//	res, err := elicitor.Elicit(ctx, req, user, params, state)
 //
 // The package does not make the URL safe on its own. The server behind the
 // URL binds its flow to the person the elicitation was issued to and checks
@@ -51,16 +56,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Sealer seals state for a user and a call and opens it again.
-type Sealer interface {
-	Seal(issuer, subject, call string, payload []byte, ttl time.Duration) (string, error)
-	Open(issuer, subject, call, sealed string) ([]byte, error)
-}
-
-// Identity is the validated caller the state is bound to.
-type Identity struct {
-	Issuer  string
-	Subject string
+// Sealer seals state for a validated user of type U and an originating
+// request, and opens it again for the same user and request.
+type Sealer[U any] interface {
+	Seal(user U, request string, payload []byte, ttl time.Duration) (string, error)
+	Open(user U, request, sealed string) ([]byte, error)
 }
 
 // URLParams is one URL the caller is asked to open: the specification's
@@ -77,7 +77,7 @@ type URLParams struct {
 
 var (
 	// ErrInvalidRequestState is a requestState that fails verification: not
-	// sealed by this server, changed, or issued to another person or call.
+	// sealed by this server, changed, or issued to another person or request.
 	ErrInvalidRequestState = errors.New("urlelicitation: invalid requestState")
 	// ErrInvalidResponse is an input response that is not an elicitation
 	// result with a known action.
@@ -87,22 +87,27 @@ var (
 // DefaultTTL is how long a caller has to answer.
 const DefaultTTL = 15 * time.Minute
 
-// Elicitor asks callers to open URLs and reads their results.
-type Elicitor struct {
-	sealer  Sealer
+// Elicitor asks callers, validated users of type U, to open URLs and reads
+// their results.
+type Elicitor[U any] struct {
+	sealer Sealer[U]
+	config
+}
+
+type config struct {
 	ttl     time.Duration
 	expired func(error) bool
 }
 
 // Option configures an [Elicitor].
-type Option func(*Elicitor)
+type Option func(*config)
 
 // WithTTL sets how long a caller has to answer. A nonpositive ttl keeps
 // [DefaultTTL].
 func WithTTL(ttl time.Duration) Option {
-	return func(e *Elicitor) {
+	return func(c *config) {
 		if ttl > 0 {
-			e.ttl = ttl
+			c.ttl = ttl
 		}
 	}
 }
@@ -111,17 +116,17 @@ func WithTTL(ttl time.Duration) Option {
 // with lapsed state is read as a first call, so the tool elicits again;
 // without this option it is rejected as [ErrInvalidRequestState].
 func WithExpired(expired func(error) bool) Option {
-	return func(e *Elicitor) { e.expired = expired }
+	return func(c *config) { c.expired = expired }
 }
 
 // New returns an Elicitor that seals with sealer.
-func New(sealer Sealer, opts ...Option) (*Elicitor, error) {
+func New[U any](sealer Sealer[U], opts ...Option) (*Elicitor[U], error) {
 	if sealer == nil {
 		return nil, errors.New("urlelicitation: a sealer is required")
 	}
-	e := &Elicitor{sealer: sealer, ttl: DefaultTTL, expired: func(error) bool { return false }}
+	e := &Elicitor[U]{sealer: sealer, config: config{ttl: DefaultTTL, expired: func(error) bool { return false }}}
 	for _, opt := range opts {
-		opt(e)
+		opt(&e.config)
 	}
 	return e, nil
 }
@@ -136,14 +141,14 @@ type sealedState struct {
 // Elicit answers the call with p, carrying state back on a 2026-07-28 retry.
 // See the package documentation for the answer per revision. A returned
 // error is meant to be returned by the tool handler as is.
-func (e *Elicitor) Elicit(ctx context.Context, req mcp.CallToolRequest, who Identity, p URLParams, state []byte) (*mcp.CallToolResult, error) {
+func (e *Elicitor[U]) Elicit(ctx context.Context, req mcp.CallToolRequest, who U, p URLParams, state []byte) (*mcp.CallToolResult, error) {
 	if p.Key == RelayKey {
 		return nil, fmt.Errorf("urlelicitation: the key %q is reserved for Relay", RelayKey)
 	}
 	return e.elicit(ctx, req, who, p, state)
 }
 
-func (e *Elicitor) elicit(ctx context.Context, req mcp.CallToolRequest, who Identity, p URLParams, state []byte) (*mcp.CallToolResult, error) {
+func (e *Elicitor[U]) elicit(ctx context.Context, req mcp.CallToolRequest, who U, p URLParams, state []byte) (*mcp.CallToolResult, error) {
 	if err := validParams(p); err != nil {
 		return nil, err
 	}
@@ -155,7 +160,7 @@ func (e *Elicitor) elicit(ctx context.Context, req mcp.CallToolRequest, who Iden
 		params.ElicitationID = rand.Text()
 		return nil, mcp.URLElicitationRequiredError{Elicitations: []mcp.ElicitationParams{params}}
 	}
-	call, err := callBinding(req)
+	request, err := requestBinding(req)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +168,7 @@ func (e *Elicitor) elicit(ctx context.Context, req mcp.CallToolRequest, who Iden
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: requestState: %w", err)
 	}
-	sealed, err := e.sealer.Seal(who.Issuer, who.Subject, call, payload, e.ttl)
+	sealed, err := e.sealer.Seal(who, request, payload, e.ttl)
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: seal requestState: %w", err)
 	}
@@ -188,15 +193,15 @@ type Result struct {
 // [WithExpired]), or no input response under the key, which the
 // specification answers by eliciting again. A returned error is meant to be
 // returned by the tool handler as is; it is an invalid params error.
-func (e *Elicitor) Result(ctx context.Context, req mcp.CallToolRequest, who Identity) (*Result, error) {
+func (e *Elicitor[U]) Result(ctx context.Context, req mcp.CallToolRequest, who U) (*Result, error) {
 	if req.Params.RequestState == "" {
 		return nil, nil
 	}
-	call, err := callBinding(req)
+	request, err := requestBinding(req)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := e.sealer.Open(who.Issuer, who.Subject, call, req.Params.RequestState)
+	payload, err := e.sealer.Open(who, request, req.Params.RequestState)
 	if err != nil {
 		if e.expired(err) {
 			return nil, nil
@@ -245,10 +250,10 @@ func fallback(ctx context.Context, p URLParams) *mcp.CallToolResult {
 	return res
 }
 
-// callBinding names the call a value is sealed for: the method, the tool and
-// a digest of its arguments. encoding/json orders map keys, so equal
-// arguments bind alike.
-func callBinding(req mcp.CallToolRequest) (string, error) {
+// requestBinding names the originating request a value is sealed for: the
+// method, the tool and a digest of its arguments. encoding/json orders map
+// keys, so equal arguments bind alike.
+func requestBinding(req mcp.CallToolRequest) (string, error) {
 	args, err := json.Marshal(req.Params.Arguments)
 	if err != nil {
 		return "", fmt.Errorf("urlelicitation: arguments: %w", err)
