@@ -15,7 +15,10 @@ import (
 	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 )
 
-var errLapsed = errors.New("lapsed")
+var (
+	errLapsed  = errors.New("lapsed")
+	errUnbound = errors.New("unbound")
+)
 
 // user stands in for the validated user type, such as mcp-oauth's
 // *providers.UserInfo.
@@ -26,6 +29,7 @@ type user struct{ Issuer, Subject string }
 type fakeSealer struct {
 	ttl     time.Duration
 	lapsed  bool
+	unbound bool
 	sealIDs int
 }
 
@@ -36,6 +40,9 @@ type sealed struct {
 }
 
 func (f *fakeSealer) Seal(u user, request string, payload []byte, ttl time.Duration) (string, error) {
+	if f.unbound {
+		return "", errUnbound
+	}
 	f.ttl = ttl
 	f.sealIDs++
 	raw, err := json.Marshal(sealed{u, request, payload})
@@ -366,4 +373,26 @@ func TestNewInfersUserType(t *testing.T) {
 	e, err := urlelicitation.New(&fakeSealer{})
 	require.NoError(t, err)
 	require.IsType(t, &urlelicitation.Elicitor[user]{}, e)
+}
+
+func TestNewRefusesNilSealer(t *testing.T) {
+	_, err := urlelicitation.New[user](nil)
+	require.Error(t, err)
+	_, err = urlelicitation.New((*fakeSealer)(nil))
+	require.Error(t, err)
+}
+
+func TestElicitUnbound(t *testing.T) {
+	sealer := &fakeSealer{unbound: true}
+	_, err := elicitor(t, sealer).Elicit(modern(t, urlCap), call(tool, nil), alice, signIn, nil)
+	require.ErrorIs(t, err, errUnbound)
+
+	e := elicitor(t, sealer, urlelicitation.WithUnbound(func(err error) bool { return errors.Is(err, errUnbound) }))
+	res, err := e.Elicit(modern(t, urlCap), call(tool, nil), alice, signIn, nil)
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	require.False(t, res.NeedsInput())
+	link, ok := res.Content[1].(mcp.ResourceLink)
+	require.True(t, ok)
+	require.Equal(t, signIn.URL, link.URI)
 }
