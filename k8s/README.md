@@ -21,5 +21,8 @@ supplied caller client. It returns false for denied or contradictory decisions
 and errors for failed or unevaluable reviews. Consumers filter application-owned
 reads on this result and retain their own public error representations.
 
-Run checks independently with `GOWORK=off go test -race ./...`. Source releases
-use `k8s/vX.Y.Z` tags through devctl's generated nested-module workflow.
+Run checks independently with `GOWORK=off go test -race ./...`. The tests in
+`envtest_test.go` run against a real kube-apiserver with RBAC when
+`KUBEBUILDER_ASSETS` points at envtest binaries, and skip with `-short` or
+without it. Source releases use `k8s/vX.Y.Z` tags through devctl's generated
+nested-module workflow.

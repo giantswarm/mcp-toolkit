@@ -54,6 +54,8 @@ s := mcpserver.NewMCPServer("my-mcp", "1.0.0",
 )
 ```
 
+[`docs/kubernetes.md`](./docs/kubernetes.md) shows these packages together with the optional `k8s` module, so tools call Kubernetes with the caller's own token.
+
 For the official SDK, wrap each native handler with `middleware/gosdk.New(options)` before `Server.AddTool`. `Timeout == 0` selects 30 seconds; negative disables it. Nonpositive `MaxResultBytes` disables the limit. Applications whose existing configuration uses zero to disable timeouts translate it to a negative duration. Both adapters distinguish parent cancellation from their own deadline and leave native SDK spans intact. The older `middleware/timeout` and text-only `middleware/responsecap` remain available during consumer migration.
 
 The OTel signal `Init` helpers — `tracing.Init`, `metrics.Init`,
