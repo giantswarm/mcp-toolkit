@@ -75,7 +75,7 @@ func TestOnlyCallerCredentialReachesAPI(t *testing.T) {
 	require.NoError(t, err)
 	_, err = clients.Clientset.CoreV1().ConfigMaps("default").List(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
-	_, err = clients.Dynamic.Resource(schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}).Namespace("default").List(t.Context(), metav1.ListOptions{})
+	_, err = clients.Dynamic.Resource(schema.GroupVersionResource{Version: "v1", Resource: configMaps}).Namespace("default").List(t.Context(), metav1.ListOptions{})
 	require.NoError(t, err)
 	_, err = clients.Discovery.ServerResourcesForGroupVersion("v1")
 	require.NoError(t, err)

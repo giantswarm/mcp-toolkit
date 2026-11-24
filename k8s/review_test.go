@@ -23,7 +23,7 @@ func TestAccessReviewUsesCallerAndFailsClosed(t *testing.T) {
 	)
 	for _, name := range []string{allowedReview, "denied", evaluationErrorReview, contradictoryReview, apiError} {
 		t.Run(name, func(t *testing.T) {
-			attributes := authorizationv1.ResourceAttributes{Verb: "get", Group: "", Version: "v1", Resource: "configmaps", Namespace: "default", Name: "configuration"}
+			attributes := authorizationv1.ResourceAttributes{Verb: verbGet, Group: "", Version: "v1", Resource: configMaps, Namespace: "default", Name: "configuration"}
 			api := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				assert.Equal(t, "Bearer caller-token", request.Header.Get("Authorization"))
 				assert.Equal(t, "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", request.URL.Path)
