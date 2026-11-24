@@ -57,10 +57,10 @@ type relayState struct {
 
 // Relay asks the tool's caller to open r's URL. target names the called
 // server's call, so the retry goes back to it; the state carrying it and r's
-// requestState is sealed for the caller and this call. Relay only third-party
+// requestState is sealed for the caller and this request. Relay only third-party
 // sign-ins: a called server's sign-in to itself is MCP authorization, not URL
 // elicitation.
-func (e *Elicitor) Relay(ctx context.Context, req mcp.CallToolRequest, who Identity, target string, r *Relayed) (*mcp.CallToolResult, error) {
+func (e *Elicitor[U]) Relay(ctx context.Context, req mcp.CallToolRequest, who U, target string, r *Relayed) (*mcp.CallToolResult, error) {
 	state, err := json.Marshal(relayState{Target: target, Key: r.Key, RequestState: r.RequestState})
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: relay state: %w", err)
