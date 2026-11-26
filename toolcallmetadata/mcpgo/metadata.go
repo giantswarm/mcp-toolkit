@@ -1,4 +1,4 @@
-// Package mcpgo reads kagent's tool-call metadata from mcp-go requests.
+// Package mcpgo reads tool-call metadata from mcp-go requests.
 package mcpgo
 
 import (
@@ -7,8 +7,9 @@ import (
 	"github.com/giantswarm/mcp-toolkit/toolcallmetadata"
 )
 
-// ValuesOf returns a shallow copy of the request's qualified metadata values,
-// or nil when none are present. It does not check negotiation or accepted keys.
+// ValuesOf returns a shallow copy of mcp-go's additional _meta fields, or nil
+// when absent. ProgressToken remains on request.Params.Meta.ProgressToken.
+// It does not validate application data or negotiate extensions.
 func ValuesOf(request mcp.CallToolRequest) map[string]any {
 	if request.Params.Meta == nil {
 		return nil
