@@ -4,26 +4,19 @@ The `urlelicitation` package implements MCP URL mode elicitation for mcp-go tool
 
 For MCP 2026-07-28 clients declaring URL mode support, `Elicit` returns an `InputRequiredResult` with sealed `requestState`. `Result` verifies that state before reading the response. An `accept` action means consent to open the URL; the tool must verify that the external interaction completed.
 
-## Sealing error fallback
+## Sealing errors
 
-`WithSealErrorFallback` is an optional local policy. Its predicate selects `Sealer.Seal` errors for which a call with empty application state may return a tool error containing the URL and a `resource_link`. The client receives no `inputRequests` or `requestState`; the person opens the URL and retries the tool as a new call. This is not an MCP or OAuth error classification.
-
-For mcp-oauth's sealer, configure only the missing client ID error:
+Every `Sealer.Seal` error fails the call. With mcp-oauth's sealer, a caller without a validated identity (`requeststate.ErrIncompleteIdentity`) or without a single OAuth client (`requeststate.ErrMissingClientID`) cannot be bound to, so the tool returns the error rather than an answer without state:
 
 ```go
 elicitor, err := urlelicitation.New(sealer,
     urlelicitation.WithExpired(func(err error) bool {
         return errors.Is(err, requeststate.ErrExpired)
     }),
-    urlelicitation.WithSealErrorFallback(func(err error) bool {
-        return errors.Is(err, requeststate.ErrMissingClientID)
-    }),
 )
 ```
 
-The tool must obtain the user from validated authentication context. A missing user, issuer or subject returns `requeststate.ErrIncompleteIdentity` and must remain an error. Key failures and other operational errors must also remain errors. `New` rejects nil sealers, nil options and nil error predicates.
-
-The sealing error fallback is refused when application state is nonempty. `Relay` always carries a continuation containing the downstream target, input key and request state, so it propagates sealing errors. `Result` never applies this fallback to `Sealer.Open` errors; a retry whose state cannot be verified remains an invalid-params error.
+The tool must obtain the user from validated authentication context. `New` rejects nil sealers, nil options and a nil expired predicate. `Result` never answers a `Sealer.Open` error other than an expired one as a first call; a retry whose state cannot be verified is an invalid-params error.
 
 ## Earlier revisions and capabilities
 
