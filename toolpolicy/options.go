@@ -15,10 +15,10 @@ type Options struct {
 	MaxResultBytes int
 	// Timeout defaults to 30 seconds when zero. Negative disables the deadline.
 	Timeout time.Duration
-	// User returns the user the call acts for, as a [slog.LogValuer] that
-	// names them without profile data or credentials; mcp-oauth's
-	// *providers.UserInfo is one. The audit record logs it under "user". A nil
-	// result or an empty value leaves the user out of the record.
+	// User returns an already-validated identity's log representation.
+	// The callback owns its fields and redaction; its value is logged under
+	// "user" without further validation. A nil result or empty slog group is
+	// omitted by the standard handlers. A zero slog.Value is logged as null.
 	User func(context.Context) slog.LogValuer
 	// Logger receives tool and outcome records without argument values or errors.
 	// Nil disables audit logging.

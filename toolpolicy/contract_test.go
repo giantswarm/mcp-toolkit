@@ -102,7 +102,10 @@ func TestNativePolicyContracts(t *testing.T) {
 						t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 						var audit bytes.Buffer
 						options := toolpolicy.Options{Timeout: time.Second, Meter: provider.Meter("contract"), Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) slog.LogValuer {
-							return testUser{issuer: "https://issuer.example.test", subject: contractSubject, actorIssuer: "https://actors.example.test", actorSubject: contractActor}
+							return testLogValuer{value: slog.GroupValue(
+								slog.String("issuer", "https://issuer.example.test"), slog.String(auditSubjectField, contractSubject),
+								slog.Group("actor", slog.String("issuer", "https://actors.example.test"), slog.String(auditSubjectField, contractActor)),
+							)}
 						}}
 						parent, cancel := context.WithCancel(t.Context())
 						defer cancel()
@@ -215,9 +218,13 @@ func assertDuration(t *testing.T, reader *sdkmetric.ManualReader, errorType stri
 func TestAuditLeavesOutAnAbsentUser(t *testing.T) {
 	for name, call := range adapters() {
 		t.Run(name, func(t *testing.T) {
-			for _, user := range []slog.LogValuer{nil, testUser{}} {
+			for _, lookup := range []func(context.Context) slog.LogValuer{
+				nil,
+				func(context.Context) slog.LogValuer { return nil },
+				func(context.Context) slog.LogValuer { return testLogValuer{value: slog.GroupValue()} },
+			} {
 				var audit bytes.Buffer
-				result := call(t.Context(), toolpolicy.Options{Timeout: -1, Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) slog.LogValuer { return user }}, func(context.Context) (bool, error) { return false, nil })
+				result := call(t.Context(), toolpolicy.Options{Timeout: -1, Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: lookup}, func(context.Context) (bool, error) { return false, nil })
 				require.NoError(t, result.err)
 				var event map[string]any
 				require.NoError(t, json.Unmarshal(audit.Bytes(), &event))
@@ -227,17 +234,35 @@ func TestAuditLeavesOutAnAbsentUser(t *testing.T) {
 	}
 }
 
-// testUser renders like mcp-oauth's *providers.UserInfo: issuer, subject and
-// the actor, and nothing when incomplete.
-type testUser struct{ issuer, subject, actorIssuer, actorSubject string }
-
-func (u testUser) LogValue() slog.Value {
-	if u.issuer == "" || u.subject == "" {
-		return slog.GroupValue()
+func TestAuditUsesTheSuppliedUserValue(t *testing.T) {
+	for name, call := range adapters() {
+		t.Run(name, func(t *testing.T) {
+			for _, test := range []struct {
+				name  string
+				value slog.Value
+				want  any
+			}{
+				{name: "zero value is null"},
+				{name: "scalar", value: slog.StringValue("subject-id"), want: "subject-id"},
+				{name: "application fields", value: slog.GroupValue(slog.String("account", "account-id")), want: map[string]any{"account": "account-id"}},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					var audit bytes.Buffer
+					result := call(t.Context(), toolpolicy.Options{
+						Timeout: -1, Logger: slog.New(slog.NewJSONHandler(&audit, nil)),
+						User: func(context.Context) slog.LogValuer { return testLogValuer{value: test.value} },
+					}, func(context.Context) (bool, error) { return false, nil })
+					require.NoError(t, result.err)
+					var event map[string]any
+					require.NoError(t, json.Unmarshal(audit.Bytes(), &event))
+					require.Contains(t, event, "user")
+					require.Equal(t, test.want, event["user"])
+				})
+			}
+		})
 	}
-	attributes := []slog.Attr{slog.String("issuer", u.issuer), slog.String(auditSubjectField, u.subject)}
-	if u.actorSubject != "" {
-		attributes = append(attributes, slog.Group("actor", slog.String("issuer", u.actorIssuer), slog.String(auditSubjectField, u.actorSubject)))
-	}
-	return slog.GroupValue(attributes...)
 }
+
+type testLogValuer struct{ value slog.Value }
+
+func (user testLogValuer) LogValue() slog.Value { return user.value }

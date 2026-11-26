@@ -1,4 +1,4 @@
-// Package k8s constructs Kubernetes clients bound to the user's token and access reviews.
+// Package k8s constructs caller-bound Kubernetes clients and access reviews.
 package k8s
 
 import (
@@ -31,7 +31,7 @@ type cachedClients struct {
 
 const maxCachedClients = 256
 
-// UserClients caches clients by the user's token. It has no application-credential
+// UserClients caches clients by caller token. It has no application-credential
 // mode. Connection settings follow client-go's AnonymousClientConfig policy.
 type UserClients struct {
 	configuration *rest.Config
@@ -40,7 +40,7 @@ type UserClients struct {
 }
 
 // NewUserClients removes base credentials. wrapper explicitly augments the
-// user's transport and must not inject credentials of its own.
+// caller's transport and must not inject credentials of its own.
 func NewUserClients(base *rest.Config, wrapper transport.WrapperFunc) (*UserClients, error) {
 	if base == nil || base.Host == "" {
 		return nil, fmt.Errorf("kubernetes endpoint configuration is required")
@@ -50,7 +50,7 @@ func NewUserClients(base *rest.Config, wrapper transport.WrapperFunc) (*UserClie
 	return &UserClients{configuration: configuration, cache: make(map[[32]byte]cachedClients)}, nil
 }
 
-// ForToken requires the user's token, including after expiry. Expired tokens
+// ForToken requires a caller credential, including after expiry. Expired tokens
 // reach the API unchanged, are never cached, and never acquire other authority.
 func (c *UserClients) ForToken(token string) (*Clients, error) {
 	if strings.TrimSpace(token) == "" {

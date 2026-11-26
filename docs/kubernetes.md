@@ -1,8 +1,8 @@
-# Kubernetes clients as the user
+# Kubernetes caller clients
 
 The core packages and the optional [`k8s`](../k8s) module work together like this. The core
-packages apply tool policy. The `k8s` module makes every Kubernetes call with the user's own
-token, so the user's RBAC decides what the tool may read.
+packages apply tool policy. The `k8s` module makes every Kubernetes call with a caller-specific
+credential, so the caller's RBAC decides what the tool may read.
 
 `k8s` is a separate Go module, so client-go stays out of servers that do not use it:
 
@@ -10,11 +10,22 @@ token, so the user's RBAC decides what the tool may read.
 go get github.com/giantswarm/mcp-toolkit github.com/giantswarm/mcp-toolkit/k8s
 ```
 
-mcp-oauth validates the user and puts them on the request context: `handler.UserInfoFromContext`
-returns the user, and `handler.ProviderIDTokenFromContext` the user's OpenID Connect ID token,
-which the API server authenticates. `*providers.UserInfo` is a `slog.LogValuer` that names the
-user by issuer, subject and actor, never by email, so the audit record and the server's own log
-lines take it as it is. mcp-toolkit itself does not import mcp-oauth.
+The example uses mcp-oauth's locally issued opaque MCP access tokens (`TokenSourceOAuth`),
+with `RequireResourceAccessTokens: true` in the OAuth server configuration. Run the MCP
+transport inside `handler.ValidateToken` so the request context is authenticated. The
+upstream login must separately obtain an OpenID Connect ID token whose issuer and audience
+the Kubernetes API server is configured to accept.
+
+`handler.UserInfoFromContext` supplies the validated identity. `handler.ProviderIDTokenFromContext`
+resolves the separate stored provider ID token for the supported authentication source.
+The helper below rejects every other source before resolving credentials, including forwarded
+ID tokens and trusted-issuer bearers: for those sources the accessor can return the incoming
+bearer itself. [MCP forbids passing that bearer to an upstream API](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#access-token-privilege-restriction).
+Servers supporting other sources need a separate downstream token acquisition or exchange path.
+
+`*providers.UserInfo` implements `slog.LogValuer` and logs issuer, subject and supplied current
+actor fields, excluding profile fields. Subject values may themselves be email addresses.
+mcp-toolkit does not import mcp-oauth; see the [logging contract and migration](tool-policy.md).
 
 ```go
 import (
@@ -29,6 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-toolkit/k8s"
 	policy "github.com/giantswarm/mcp-toolkit/middleware/mcpgo"
 	"github.com/giantswarm/mcp-toolkit/toolpolicy"
@@ -43,8 +55,12 @@ func user(ctx context.Context) slog.LogValuer {
 	return userInfo
 }
 
-// userClients builds clients that present the user's ID token.
+// userClients requires a stored provider credential separate from the MCP bearer.
 func userClients(ctx context.Context, users *k8s.UserClients) (*k8s.Clients, error) {
+	userInfo, ok := handler.UserInfoFromContext(ctx)
+	if !ok || userInfo == nil || userInfo.TokenSource != providers.TokenSourceOAuth {
+		return nil, handler.ErrProviderIDTokenUnavailable
+	}
 	idToken, err := handler.ProviderIDTokenFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -108,10 +124,9 @@ func newServer(base *rest.Config, application kubernetes.Interface, logger *slog
 }
 ```
 
-`list_pods` sends the user's ID token, so Kubernetes enforces the user's RBAC on the read.
+`list_pods` sends the separately obtained provider ID token, so Kubernetes enforces the caller's RBAC on the read.
 `get_settings` reads with an application client, so it first asks Kubernetes with
 `ReviewAccess` whether the user may read the same object, and fails closed on any review error.
-Its log line names the user under `user` (issuer, subject and the actor of a delegated call), the
-same fields as the audit record and never an email address. `ForToken`
+Its log line names the user under `user`, using the same projection as the audit record. `ForToken`
 refuses a missing token before any request is made. The module never falls back to the
 application's credentials.
