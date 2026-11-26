@@ -101,8 +101,8 @@ func TestNativePolicyContracts(t *testing.T) {
 						provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 						t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.WithoutCancel(t.Context()))) })
 						var audit bytes.Buffer
-						options := toolpolicy.Options{Timeout: time.Second, Meter: provider.Meter("contract"), Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) (toolpolicy.Identity, bool) {
-							return toolpolicy.Identity{Issuer: "https://issuer.example.test", Subject: contractSubject, ActorIssuer: "https://actors.example.test", ActorSubject: contractActor}, true
+						options := toolpolicy.Options{Timeout: time.Second, Meter: provider.Meter("contract"), Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) slog.LogValuer {
+							return testUser{issuer: "https://issuer.example.test", subject: contractSubject, actorIssuer: "https://actors.example.test", actorSubject: contractActor}
 						}}
 						parent, cancel := context.WithCancel(t.Context())
 						defer cancel()
@@ -173,8 +173,10 @@ func TestNativePolicyContracts(t *testing.T) {
 						var event map[string]any
 						require.NoError(t, json.Unmarshal(audit.Bytes(), &event))
 						require.Equal(t, outcome, event["outcome"])
-						require.Equal(t, contractSubject, event[auditSubjectField])
-						require.Equal(t, contractActor, event["actor_subject"])
+						user, ok := event["user"].(map[string]any)
+						require.True(t, ok, "the audit record names the user")
+						require.Equal(t, contractSubject, user[auditSubjectField])
+						require.Equal(t, map[string]any{"issuer": "https://actors.example.test", auditSubjectField: contractActor}, user["actor"])
 						require.NotContains(t, audit.String(), "secret")
 						assertDuration(t, reader, errorType)
 					})
@@ -210,19 +212,32 @@ func assertDuration(t *testing.T, reader *sdkmetric.ManualReader, errorType stri
 	}
 }
 
-func TestIncompleteIdentityIsExcludedFromAudit(t *testing.T) {
+func TestAuditLeavesOutAnAbsentUser(t *testing.T) {
 	for name, call := range adapters() {
 		t.Run(name, func(t *testing.T) {
-			for _, identity := range []toolpolicy.Identity{{Subject: contractSubject}, {Issuer: "source-issuer"}, {Issuer: "source-issuer", Subject: contractSubject, ActorSubject: contractActor}} {
+			for _, user := range []slog.LogValuer{nil, testUser{}} {
 				var audit bytes.Buffer
-				result := call(t.Context(), toolpolicy.Options{Timeout: -1, Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) (toolpolicy.Identity, bool) { return identity, true }}, func(context.Context) (bool, error) { return false, nil })
+				result := call(t.Context(), toolpolicy.Options{Timeout: -1, Logger: slog.New(slog.NewJSONHandler(&audit, nil)), User: func(context.Context) slog.LogValuer { return user }}, func(context.Context) (bool, error) { return false, nil })
 				require.NoError(t, result.err)
 				var event map[string]any
 				require.NoError(t, json.Unmarshal(audit.Bytes(), &event))
-				require.NotContains(t, event, "issuer")
-				require.NotContains(t, event, auditSubjectField)
-				require.NotContains(t, event, "actor_subject")
+				require.NotContains(t, event, "user")
 			}
 		})
 	}
+}
+
+// testUser renders like mcp-oauth's *providers.UserInfo: issuer, subject and
+// the actor, and nothing when incomplete.
+type testUser struct{ issuer, subject, actorIssuer, actorSubject string }
+
+func (u testUser) LogValue() slog.Value {
+	if u.issuer == "" || u.subject == "" {
+		return slog.GroupValue()
+	}
+	attributes := []slog.Attr{slog.String("issuer", u.issuer), slog.String(auditSubjectField, u.subject)}
+	if u.actorSubject != "" {
+		attributes = append(attributes, slog.Group("actor", slog.String("issuer", u.actorIssuer), slog.String(auditSubjectField, u.actorSubject)))
+	}
+	return slog.GroupValue(attributes...)
 }

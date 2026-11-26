@@ -19,8 +19,8 @@ Successful patterns from this module are upstream candidates for `mark3labs/mcp-
 
 | Path | Purpose |
 |---|---|
-| [`k8s`](./k8s) (separate Go module) | Caller-bound client-go clients and SelfSubjectAccessReviews, with explicit transport wrappers and expiry-aware caching. |
-| [`toolpolicy`](./toolpolicy) | Resolved limits, a validated identity accessor, logger and meter for both adapters. Audit includes issuer, subject, actor, tool and outcome, with no profile, argument or credential values. |
+| [`k8s`](./k8s) (separate Go module) | User-bound client-go clients and SelfSubjectAccessReviews, with explicit transport wrappers and expiry-aware caching. |
+| [`toolpolicy`](./toolpolicy) | Resolved limits, the user accessor, logger and meter for both adapters. Audit includes the user (issuer, subject, actor; mcp-oauth's `*providers.UserInfo` as a `slog.LogValuer`), tool and outcome, with no profile, argument or credential values. |
 | [`middleware/mcpgo`](./middleware/mcpgo) | Native mcp-go server option using its complete-result size limit, plus shared audit, deadlines and `mcp.server.operation.duration`. |
 | [`middleware/gosdk`](./middleware/gosdk) | Official SDK handler decorator with the same policy and a complete JSON result limit. |
 | [`middleware/responsecap`](./middleware/responsecap) | Reject oversized tool responses with a typed `response_too_large` error and `IsError = true`, instead of letting the LLM consume truncated-but-syntactically-valid output. |

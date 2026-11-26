@@ -9,24 +9,17 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Identity contains validated issuer and subject pairs. It contains no profile
-// information or credentials. Actor fields are either both empty or both set.
-type Identity struct {
-	Issuer       string
-	Subject      string
-	ActorIssuer  string
-	ActorSubject string
-}
-
 // Options contains policy shared by the native SDK adapters.
 type Options struct {
 	// MaxResultBytes bounds the complete JSON tool result. Nonpositive disables it.
 	MaxResultBytes int
 	// Timeout defaults to 30 seconds when zero. Negative disables the deadline.
 	Timeout time.Duration
-	// User reads an already-validated identity from the request context.
-	// Missing or incomplete identities are omitted from audit records.
-	User func(context.Context) (Identity, bool)
+	// User returns the user the call acts for, as a [slog.LogValuer] that
+	// names them without profile data or credentials; mcp-oauth's
+	// *providers.UserInfo is one. The audit record logs it under "user". A nil
+	// result or an empty value leaves the user out of the record.
+	User func(context.Context) slog.LogValuer
 	// Logger receives tool and outcome records without argument values or errors.
 	// Nil disables audit logging.
 	Logger *slog.Logger

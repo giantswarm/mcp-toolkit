@@ -104,12 +104,8 @@ func (p *Policy) Record(ctx context.Context, tool string, started time.Time, out
 	}
 	fields := []slog.Attr{slog.String("tool", tool), slog.String("outcome", string(outcome))}
 	if p.options.User != nil {
-		identity, valid := p.options.User(ctx)
-		if valid && identity.Issuer != "" && identity.Subject != "" && (identity.ActorIssuer == "") == (identity.ActorSubject == "") {
-			fields = append(fields, slog.String("issuer", identity.Issuer), slog.String("subject", identity.Subject))
-			if identity.ActorSubject != "" {
-				fields = append(fields, slog.String("actor_issuer", identity.ActorIssuer), slog.String("actor_subject", identity.ActorSubject))
-			}
+		if user := p.options.User(ctx); user != nil {
+			fields = append(fields, slog.Any("user", user))
 		}
 	}
 	p.options.Logger.LogAttrs(ctx, slog.LevelInfo, "tool_call", fields...)
