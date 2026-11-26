@@ -4,15 +4,15 @@ package mcpgo
 import (
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/giantswarm/mcp-toolkit/toolcallmetadata"
+	"github.com/giantswarm/mcp-toolkit/requestmeta"
 )
 
-// ValuesOf returns a shallow copy of mcp-go's additional _meta fields, or nil
+// FromToolCall returns a shallow copy of mcp-go's additional _meta fields, or nil
 // when absent. ProgressToken remains on request.Params.Meta.ProgressToken.
 // It does not validate application data or negotiate extensions.
-func ValuesOf(request mcp.CallToolRequest) map[string]any {
+func FromToolCall(request mcp.CallToolRequest) map[string]any {
 	if request.Params.Meta == nil {
 		return nil
 	}
-	return toolcallmetadata.Values(request.Params.Meta.AdditionalFields)
+	return requestmeta.Values(request.Params.Meta.AdditionalFields)
 }

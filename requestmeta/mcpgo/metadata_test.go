@@ -11,7 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 
-	metadatamcpgo "github.com/giantswarm/mcp-toolkit/toolcallmetadata/mcpgo"
+	metadatamcpgo "github.com/giantswarm/mcp-toolkit/requestmeta/mcpgo"
 )
 
 const applicationKey = "io.giantswarm/tool-call-metadata"
@@ -22,7 +22,7 @@ func TestToolCallMetadataReachesApplicationWithoutExtraCapability(t *testing.T) 
 			observed := make(chan map[string]any, 1)
 			mcpServer := server.NewMCPServer("export", "test", server.WithToolCapabilities(true))
 			mcpServer.AddTool(mcp.NewTool("export"), func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				observed <- metadatamcpgo.ValuesOf(request)
+				observed <- metadatamcpgo.FromToolCall(request)
 				return mcp.NewToolResultText("ok"), nil
 			})
 			httpServer := httptest.NewServer(server.NewStreamableHTTPServer(mcpServer))
@@ -60,6 +60,6 @@ func TestToolCallMetadataReachesApplicationWithoutExtraCapability(t *testing.T) 
 	}
 }
 
-func TestValuesOfAbsentMetadata(t *testing.T) {
-	require.Nil(t, metadatamcpgo.ValuesOf(mcp.CallToolRequest{}))
+func TestFromToolCallAbsentMetadata(t *testing.T) {
+	require.Nil(t, metadatamcpgo.FromToolCall(mcp.CallToolRequest{}))
 }

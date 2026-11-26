@@ -1,9 +1,9 @@
-# Tool-call metadata
+# Request metadata
 
-`toolcallmetadata` reads the `_meta` map of an MCP tool call without interpreting
-its application fields. It defines no MCP extension, capability declaration,
-key allowlist or application payload schema. The `mcpgo` package adapts mcp-go
-requests; the base package works with an SDK-independent map.
+`requestmeta` reads application fields from SDK-independent MCP request `_meta`
+maps. It defines no MCP extension, capability declaration, key allowlist or
+application payload schema. `requestmeta/mcpgo.FromToolCall` extracts these
+fields from an mcp-go tool-call request.
 
 ## Usage
 
@@ -11,11 +11,11 @@ requests; the base package works with an SDK-independent map.
 import (
     "github.com/mark3labs/mcp-go/mcp"
 
-    metadatamcpgo "github.com/giantswarm/mcp-toolkit/toolcallmetadata/mcpgo"
+    metadatamcpgo "github.com/giantswarm/mcp-toolkit/requestmeta/mcpgo"
 )
 
 func sessionID(request mcp.CallToolRequest) (string, bool) {
-    metadata := metadatamcpgo.ValuesOf(request)
+    metadata := metadatamcpgo.FromToolCall(request)
     application, _ := metadata["io.giantswarm/tool-call-metadata"].(map[string]any)
     session, ok := application["session"].(string)
     return session, ok
@@ -28,17 +28,22 @@ Use a suitable vendor prefix for application metadata. MCP defines its
 [top-level key syntax](https://modelcontextprotocol.io/specification/2026-07-28/basic#_meta);
 keys inside application objects are not constrained by that syntax.
 
-`Values` returns a shallow copy of an SDK-independent `_meta` map.
-`mcpgo.ValuesOf` copies mcp-go's additional `_meta` fields; its progress token
+`requestmeta.Values` returns a shallow copy of an SDK-independent `_meta` map.
+`mcpgo.FromToolCall` copies mcp-go's additional `_meta` fields; its progress token
 remains on `request.Params.Meta.ProgressToken`. Nested objects and arrays remain shared. Missing metadata
-returns nil. `String` reads a string directly from an SDK-independent map.
+returns nil. `requestmeta.String` reads a string directly from an SDK-independent map.
 A runtime forwarding request metadata must supply it on every request that
 needs it; these readers retain no state.
 
 ## Updating a server
 
+Replace `github.com/giantswarm/mcp-toolkit/toolcallmetadata` imports with
+`github.com/giantswarm/mcp-toolkit/requestmeta`, and update the SDK adapter
+import to `github.com/giantswarm/mcp-toolkit/requestmeta/mcpgo`.
+Replace `mcpgo.ValuesOf(request)` with `mcpgo.FromToolCall(request)`.
+
 `ExtensionID`, `MustSettings` and `IsKey` are removed. Remove declarations of
-`dev.kagent/tool-call-metadata` and its `keys` settings. `Values` and `ValuesOf`
+`dev.kagent/tool-call-metadata` and its `keys` settings. `Values` and `FromToolCall`
 return the metadata fields rather than an unwrapped kagent payload, so read
 your application key explicitly as in the example above. The matching runtime
 must forward that application key directly; a runtime sending the older nested

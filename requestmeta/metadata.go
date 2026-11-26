@@ -1,11 +1,11 @@
-// Package toolcallmetadata reads application data from MCP tool-call _meta.
+// Package requestmeta reads application data from MCP request _meta maps.
 // It defines no extension identifier, capability settings or payload schema.
 // Values are untrusted application data, not credentials.
-package toolcallmetadata
+package requestmeta
 
 import "maps"
 
-// Values returns a shallow copy of a tool call's _meta. Nested values remain
+// Values returns a shallow copy of a request's _meta. Nested values remain
 // shared. It does not validate application data or negotiate extensions.
 func Values(meta map[string]any) map[string]any {
 	return maps.Clone(meta)

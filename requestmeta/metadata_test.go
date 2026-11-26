@@ -1,11 +1,11 @@
-package toolcallmetadata_test
+package requestmeta_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/giantswarm/mcp-toolkit/toolcallmetadata"
+	"github.com/giantswarm/mcp-toolkit/requestmeta"
 )
 
 const sessionKey = "session"
@@ -16,11 +16,11 @@ func TestValuesPreservesApplicationMetadata(t *testing.T) {
 		"com.example/request-id":           "request-1",
 		"plain":                            "value",
 	}
-	values := toolcallmetadata.Values(metadata)
+	values := requestmeta.Values(metadata)
 	require.Equal(t, metadata, values)
 	values["plain"] = "changed"
 	require.Equal(t, "value", metadata["plain"])
-	require.Nil(t, toolcallmetadata.Values(nil))
+	require.Nil(t, requestmeta.Values(nil))
 }
 
 func TestString(t *testing.T) {
@@ -37,7 +37,7 @@ func TestString(t *testing.T) {
 		{name: "no metadata"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			value, present := toolcallmetadata.String(scenario.metadata, sessionKey)
+			value, present := requestmeta.String(scenario.metadata, sessionKey)
 			require.Equal(t, scenario.value, value)
 			require.Equal(t, scenario.present, present)
 		})
