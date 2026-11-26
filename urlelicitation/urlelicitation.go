@@ -11,7 +11,9 @@
 //     (-32042) with a random elicitationId. No completion notification is
 //     sent (the specification makes it optional), so the caller retries when
 //     the person says they are done, and the retry runs as a new call.
-//   - Otherwise: a tool error with the message and the URL, and the URL as a
+//   - Otherwise, or for selected sealing errors when no continuation is
+//     needed (see [WithSealErrorFallback]): a
+//     tool error with the message and the URL, and the URL as a
 //     resource_link from 2025-06-18.
 //
 // [Elicitor.Result] reads a 2026-07-28 retry. requestState is sealed by a
@@ -25,11 +27,15 @@
 //
 //	sealer, err := oauthconfig.NewRequestStateSealerFromEnv()
 //	...
-//	elicitor, err := urlelicitation.New(sealer, urlelicitation.WithExpired(func(err error) bool {
-//		return errors.Is(err, requeststate.ErrExpired)
-//	}))
+//	elicitor, err := urlelicitation.New(sealer,
+//		urlelicitation.WithExpired(func(err error) bool { return errors.Is(err, requeststate.ErrExpired) }),
+//		urlelicitation.WithSealErrorFallback(func(err error) bool { return errors.Is(err, requeststate.ErrMissingClientID) }),
+//	)
 //	...
-//	user, _ := handler.UserInfoFromContext(ctx)
+//	user, ok := handler.UserInfoFromContext(ctx)
+//	if !ok {
+//		return nil, errors.New("authenticated user is required")
+//	}
 //	res, err := elicitor.Elicit(ctx, req, user, params, state)
 //
 // The package does not make the URL safe on its own. The server behind the
@@ -37,8 +43,12 @@
 // that the person who opens the URL is that person. An accept answer means
 // the person agreed to open the URL, not that they finished: the tool checks
 // its own store and elicits again when the flow has not completed. URL mode
-// elicitation is for third-party authorization only, never for signing a
-// person in to the MCP server itself.
+// elicitation supports sensitive out-of-band interactions, including
+// third-party authorization, but must never authorize a person to the MCP
+// server itself. Earlier protocol revisions and clients without URL mode
+// support restart the tool as a new call without its continuation; handlers
+// serving those clients must be able to restart from their arguments and
+// server-side state.
 package urlelicitation
 
 import (
@@ -50,6 +60,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -95,8 +106,9 @@ type Elicitor[U any] struct {
 }
 
 type config struct {
-	ttl     time.Duration
-	expired func(error) bool
+	ttl               time.Duration
+	expired           func(error) bool
+	sealErrorFallback func(error) bool
 }
 
 // Option configures an [Elicitor].
@@ -115,18 +127,37 @@ func WithTTL(ttl time.Duration) Option {
 // WithExpired tells which [Sealer.Open] errors mean the state lapsed. A retry
 // with lapsed state is read as a first call, so the tool elicits again;
 // without this option it is rejected as [ErrInvalidRequestState].
+// A nil predicate is rejected by New.
 func WithExpired(expired func(error) bool) Option {
 	return func(c *config) { c.expired = expired }
 }
 
+// WithSealErrorFallback selects Seal errors for which Elicit may return a
+// tool error containing the URL instead of requesting input. This is local
+// presentation policy, not an MCP or OAuth error classification. It applies
+// only when state is empty, so no continuation is lost; Relay always needs
+// its continuation and propagates sealing errors. The predicate must exclude
+// missing authenticated user identity and operational failures. Without this
+// option all sealing errors are returned. A nil predicate is rejected by New.
+func WithSealErrorFallback(fallback func(error) bool) Option {
+	return func(c *config) { c.sealErrorFallback = fallback }
+}
+
 // New returns an Elicitor that seals with sealer.
 func New[U any](sealer Sealer[U], opts ...Option) (*Elicitor[U], error) {
-	if sealer == nil {
+	if isNil(sealer) {
 		return nil, errors.New("urlelicitation: a sealer is required")
 	}
-	e := &Elicitor[U]{sealer: sealer, config: config{ttl: DefaultTTL, expired: func(error) bool { return false }}}
+	never := func(error) bool { return false }
+	e := &Elicitor[U]{sealer: sealer, config: config{ttl: DefaultTTL, expired: never, sealErrorFallback: never}}
 	for _, opt := range opts {
+		if opt == nil {
+			return nil, errors.New("urlelicitation: an option must not be nil")
+		}
 		opt(&e.config)
+	}
+	if e.expired == nil || e.sealErrorFallback == nil {
+		return nil, errors.New("urlelicitation: error predicates must not be nil")
 	}
 	return e, nil
 }
@@ -169,6 +200,9 @@ func (e *Elicitor[U]) elicit(ctx context.Context, req mcp.CallToolRequest, who U
 		return nil, fmt.Errorf("urlelicitation: requestState: %w", err)
 	}
 	sealed, err := e.sealer.Seal(who, request, payload, e.ttl)
+	if err != nil && len(state) == 0 && e.sealErrorFallback(err) {
+		return fallback(ctx, p), nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: seal requestState: %w", err)
 	}
@@ -278,6 +312,20 @@ func (e invalidParamsError) JSONRPCError() mcp.JSONRPCError {
 // internal error.
 func invalidParams(err error) error {
 	return server.NewHandlerError(invalidParamsError{err: err})
+}
+
+// isNil reports a nil interface or an interface holding a nil pointer, map,
+// slice, channel or func.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func validParams(p URLParams) error {
