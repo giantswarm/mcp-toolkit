@@ -20,7 +20,7 @@ func auditUser(ctx context.Context) slog.LogValuer {
 options := toolpolicy.Options{Logger: logger, User: auditUser}
 ```
 
-This example imports `context`, `log/slog`, `github.com/giantswarm/mcp-oauth/handler` and `github.com/giantswarm/mcp-toolkit/toolpolicy`. Upgrade mcp-oauth to a release containing [giantswarm/mcp-oauth#777](https://github.com/giantswarm/mcp-oauth/pull/777) before using `UserInfo` directly. Other authentication libraries can supply their own `slog.LogValuer` without depending on mcp-oauth. Update applications such as model-manager's `validatedToolIdentity` adapter when upgrading toolkit; pinned older dependencies continue to use their existing API.
+This example imports `context`, `log/slog`, `github.com/giantswarm/mcp-oauth/handler` and `github.com/giantswarm/mcp-toolkit/toolpolicy`. Upgrade mcp-oauth to [v1.23.0](https://github.com/giantswarm/mcp-oauth/releases/tag/v1.23.0) or later before using `UserInfo` directly. Other authentication libraries can supply their own `slog.LogValuer` without depending on mcp-oauth. Update applications such as model-manager's `validatedToolIdentity` adapter when upgrading toolkit; pinned older dependencies continue to use their existing API.
 
 Update JSON log queries and dashboards at the same time:
 
