@@ -3,40 +3,41 @@
 // as the caller's own session id, that reach a tool in the call's `_meta`
 // instead of the model's arguments.
 //
-// The contract is kagent's MCP extension [ExtensionID] (kagent's
-// docs/architecture/mcp-tool-call-metadata-extension.md). A server declares
-// the metadata keys it accepts in capabilities.extensions, with [Settings]:
+// The contract is kagent's provisional, project-defined MCP extension
+// [ExtensionID], not an official MCP extension. See docs/tool-call-metadata.md
+// for its pinned specification and compatibility policy. A server declares
+// the metadata keys it accepts in capabilities.extensions with [MustSettings]:
 //
 //	server.NewMCPServer("export", "1.0.0", server.WithExtensions(map[string]any{
-//		toolcallmetadata.ExtensionID: toolcallmetadata.Settings("com.example/session"),
+//		toolcallmetadata.ExtensionID: toolcallmetadata.MustSettings("com.example/session"),
 //	}))
 //
 // A client that implements the extension then sends, on tools/call only, the
 // values of those keys as `_meta["dev.kagent/tool-call-metadata"]`, which
 // [Values] and [String] read.
 //
-// The values are untrusted application data, not credentials. A server
-// validates them and authorizes its request from the transport's
-// Authorization header, never from a value: a caller must not put tokens in
-// them and a server must not accept one from them.
+// The values are untrusted application data, not credentials. Servers must
+// validate them and independently authenticate and authorize each request.
+// HTTP MCP authorization uses audience-bound access tokens in the Authorization
+// header; stdio servers should obtain credentials from the environment.
+// Callers must not put tokens or other secrets in these values, and servers
+// must not treat the values as credentials.
 package toolcallmetadata
 
 import (
 	"fmt"
 	"maps"
 	"strings"
-
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ExtensionID is kagent's MCP extension for request-scoped tool-call
-// metadata.
+// metadata. Its provisional contract is documented in docs/tool-call-metadata.md.
 const ExtensionID = "dev.kagent/tool-call-metadata"
 
-// Settings is the extension's settings object for a server that accepts
+// MustSettings returns the extension's settings object for a server that accepts
 // keys: {"keys": [...]}. It panics on a key that is not a qualified metadata
 // key (see [IsKey]), as a server declares its keys when it is built.
-func Settings(keys ...string) map[string]any {
+func MustSettings(keys ...string) map[string]any {
 	accepted := make([]any, 0, len(keys))
 	for _, key := range keys {
 		if !IsKey(key) {
@@ -49,7 +50,8 @@ func Settings(keys ...string) map[string]any {
 
 // Values returns the tool-call metadata of a request's `_meta`: the values
 // keyed by qualified metadata key, or nil when the request carries none or
-// its entry is not an object.
+// its entry is not an object. The returned map is a shallow copy; nested values
+// remain shared. Values does not check negotiation or the server's accepted keys.
 func Values(meta map[string]any) map[string]any {
 	entry, ok := meta[ExtensionID].(map[string]any)
 	if !ok {
@@ -63,37 +65,38 @@ func Values(meta map[string]any) map[string]any {
 	return values
 }
 
-// ValuesOf returns the tool-call metadata of an mcp-go tool call (see
-// [Values]).
-func ValuesOf(req mcp.CallToolRequest) map[string]any {
-	if req.Params.Meta == nil {
-		return nil
-	}
-	return Values(req.Params.Meta.AdditionalFields)
-}
-
 // String returns the value of key in a request's `_meta` when it is a
 // string.
 func String(meta map[string]any, key string) (string, bool) {
-	value, ok := Values(meta)[key].(string)
+	if !IsKey(key) {
+		return "", false
+	}
+	entry, _ := meta[ExtensionID].(map[string]any)
+	value, ok := entry[key].(string)
 	return value, ok
 }
 
-// IsKey reports whether key is a qualified metadata key: the `_meta` key
-// grammar of MCP with a mandatory prefix that MCP does not reserve (second
-// label modelcontextprotocol or mcp), such as com.example/session.
+// IsKey reports whether key satisfies kagent's qualified metadata key rule,
+// such as com.example/session. The extension applies MCP's _meta key grammar
+// with a mandatory prefix, a nonempty name, and no MCP-reserved namespace
+// (second label modelcontextprotocol or mcp). Core MCP permits an optional
+// prefix and empty name and does not constrain keys nested in extension objects.
 func IsKey(key string) bool {
 	prefix, name, ok := strings.Cut(key, "/")
 	if !ok || !validName(name) {
 		return false
 	}
-	labels := strings.Split(prefix, ".")
-	for _, label := range labels {
+	index := 0
+	for label := range strings.SplitSeq(prefix, ".") {
 		if !validLabel(label) {
 			return false
 		}
+		if index == 1 && (label == "modelcontextprotocol" || label == "mcp") {
+			return false
+		}
+		index++
 	}
-	return len(labels) < 2 || labels[1] != "modelcontextprotocol" && labels[1] != "mcp"
+	return true
 }
 
 func validLabel(label string) bool {
