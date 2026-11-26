@@ -8,9 +8,11 @@ import (
 	"github.com/giantswarm/mcp-toolkit/toolcallmetadata"
 )
 
+const sessionKey = "session"
+
 func TestValuesPreservesApplicationMetadata(t *testing.T) {
 	metadata := map[string]any{
-		"io.giantswarm/tool-call-metadata": map[string]any{"session": "a1", "any field": true},
+		"io.giantswarm/tool-call-metadata": map[string]any{sessionKey: "a1", "any field": true},
 		"com.example/request-id":           "request-1",
 		"plain":                            "value",
 	}
@@ -28,14 +30,14 @@ func TestString(t *testing.T) {
 		value    string
 		present  bool
 	}{
-		{name: "string", metadata: map[string]any{"session": "a1"}, value: "a1", present: true},
-		{name: "empty string", metadata: map[string]any{"session": ""}, present: true},
-		{name: "number", metadata: map[string]any{"session": 3.0}},
+		{name: "string", metadata: map[string]any{sessionKey: "a1"}, value: "a1", present: true},
+		{name: "empty string", metadata: map[string]any{sessionKey: ""}, present: true},
+		{name: "number", metadata: map[string]any{sessionKey: 3.0}},
 		{name: "missing", metadata: map[string]any{}},
 		{name: "no metadata"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			value, present := toolcallmetadata.String(scenario.metadata, "session")
+			value, present := toolcallmetadata.String(scenario.metadata, sessionKey)
 			require.Equal(t, scenario.value, value)
 			require.Equal(t, scenario.present, present)
 		})
