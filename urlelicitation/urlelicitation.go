@@ -191,7 +191,7 @@ func (e *Elicitor[U]) elicit(ctx context.Context, req mcp.CallToolRequest, who U
 		params.ElicitationID = rand.Text()
 		return nil, mcp.URLElicitationRequiredError{Elicitations: []mcp.ElicitationParams{params}}
 	}
-	request, err := requestBinding(req)
+	request, err := RequestBinding(req)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +231,7 @@ func (e *Elicitor[U]) Result(ctx context.Context, req mcp.CallToolRequest, who U
 	if req.Params.RequestState == "" {
 		return nil, nil
 	}
-	request, err := requestBinding(req)
+	request, err := RequestBinding(req)
 	if err != nil {
 		return nil, err
 	}
@@ -284,10 +284,12 @@ func fallback(ctx context.Context, p URLParams) *mcp.CallToolResult {
 	return res
 }
 
-// requestBinding names the originating request a value is sealed for: the
+// RequestBinding names the originating request a value is sealed for: the
 // method, the tool and a digest of its arguments. encoding/json orders map
-// keys, so equal arguments bind alike.
-func requestBinding(req mcp.CallToolRequest) (string, error) {
+// keys, so equal arguments bind alike. A server that seals requestState
+// without an [Elicitor] passes it as the request to its [Sealer], so a retry
+// of another tool or with other arguments does not open it.
+func RequestBinding(req mcp.CallToolRequest) (string, error) {
 	args, err := json.Marshal(req.Params.Arguments)
 	if err != nil {
 		return "", fmt.Errorf("urlelicitation: arguments: %w", err)
