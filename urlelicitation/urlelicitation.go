@@ -156,7 +156,9 @@ type sealedState struct {
 
 // Elicit answers the call with p, carrying state back on a 2026-07-28 retry.
 // See the package documentation for the answer per revision. A returned
-// error is meant to be returned by the tool handler as is.
+// error is meant to be returned by the tool handler as is. The tool must
+// authenticate who before calling Elicit; earlier revisions and callers
+// without URL mode support do not invoke the sealer.
 func (e *Elicitor[U]) Elicit(ctx context.Context, req mcp.CallToolRequest, who U, p URLParams, state []byte) (*mcp.CallToolResult, error) {
 	if p.Key == RelayKey {
 		return nil, fmt.Errorf("urlelicitation: the key %q is reserved for Relay", RelayKey)

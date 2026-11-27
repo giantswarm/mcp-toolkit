@@ -258,7 +258,7 @@ func TestResultLapsedWithoutExpiredOption(t *testing.T) {
 }
 
 func TestElicitLegacy(t *testing.T) {
-	sealer := &fakeSealer{}
+	sealer := &fakeSealer{sealError: errMissingClientID}
 	e := elicitor(t, sealer)
 	ids := map[string]bool{}
 	for range 2 {
@@ -282,7 +282,8 @@ func TestElicitWithoutURLCapability(t *testing.T) {
 		"legacy": legacy(t, mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{}}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			res, err := elicitor(t, &fakeSealer{}).Elicit(ctx, call(tool, nil), alice, signIn, nil)
+			sealer := &fakeSealer{sealError: errMissingClientID}
+			res, err := elicitor(t, sealer).Elicit(ctx, call(tool, nil), alice, signIn, nil)
 			require.NoError(t, err)
 			require.True(t, res.IsError)
 			require.False(t, res.NeedsInput())
@@ -293,6 +294,7 @@ func TestElicitWithoutURLCapability(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, signIn.URL, link.URI)
 			require.Empty(t, link.MIMEType)
+			require.Zero(t, sealer.sealIDs)
 		})
 	}
 }
@@ -400,9 +402,7 @@ func TestNewRefusesNilOptions(t *testing.T) {
 	}
 }
 
-// Every sealing error fails the call: a caller that cannot be bound to is
-// never answered without state.
-func TestElicitSealingErrorFailsTheCall(t *testing.T) {
+func TestElicitModernSealingErrorFailsTheCall(t *testing.T) {
 	for name, sealError := range map[string]error{
 		"missing client":         errMissingClientID,
 		"wrapped missing client": fmt.Errorf("adapter: %w", errMissingClientID),
