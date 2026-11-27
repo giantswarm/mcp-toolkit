@@ -268,11 +268,13 @@ func fallback(ctx context.Context, p URLParams) *mcp.CallToolResult {
 	return res
 }
 
-// RequestBinding names the originating request a value is sealed for: the
-// method, the tool and a digest of its arguments. encoding/json orders map
-// keys, so equal arguments bind alike. A server that seals requestState
-// without an [Elicitor] passes it as the request to its [Sealer], so a retry
-// of another tool or with other arguments does not open it.
+// RequestBinding returns an opaque identifier for a tools/call request,
+// combining the method, tool name and a digest of its arguments.
+// encoding/json orders map keys, so equal arguments bind alike. Request IDs,
+// input responses and requestState are excluded so retries bind alike.
+// This local identifier does not authenticate the caller or protect state.
+// Pass it as the request argument to [Sealer] when sealing and opening state
+// to prevent reuse with another tool or different arguments.
 func RequestBinding(req mcp.CallToolRequest) (string, error) {
 	args, err := json.Marshal(req.Params.Arguments)
 	if err != nil {
