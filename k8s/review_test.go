@@ -9,9 +9,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	clienttesting "k8s.io/client-go/testing"
 )
 
 func TestAccessReviewUsesCallerAndFailsClosed(t *testing.T) {
@@ -66,6 +70,49 @@ func TestAccessReviewUsesCallerAndFailsClosed(t *testing.T) {
 		})
 	}
 	allowed, err := ReviewAccess(t.Context(), nil, authorizationv1.ResourceAttributes{})
+	require.Error(t, err)
+	require.False(t, allowed)
+}
+
+func TestReviewSubjectAccess(t *testing.T) {
+	subject := authenticationv1.UserInfo{Username: "system:serviceaccount:managers:models", UID: "account-uid", Groups: []string{"system:authenticated", "system:serviceaccounts"}, Extra: map[string]authenticationv1.ExtraValue{"example.org/actor": {"actor"}}}
+	attributes := authorizationv1.ResourceAttributes{Namespace: "credentials", Verb: "create", Group: "credential.giantswarm.io", Resource: "operations"}
+	for _, test := range []struct {
+		name      string
+		status    authorizationv1.SubjectAccessReviewStatus
+		want      bool
+		wantError bool
+	}{
+		{name: "allow", status: authorizationv1.SubjectAccessReviewStatus{Allowed: true}, want: true},
+		{name: "deny", status: authorizationv1.SubjectAccessReviewStatus{Denied: true}},
+		{name: "no decision"},
+		{name: "contradictory", status: authorizationv1.SubjectAccessReviewStatus{Allowed: true, Denied: true}},
+		{name: "evaluation failed", status: authorizationv1.SubjectAccessReviewStatus{Allowed: true, EvaluationError: "unavailable"}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := fake.NewClientset()
+			client.PrependReactor("create", "subjectaccessreviews", func(action clienttesting.Action) (bool, runtime.Object, error) {
+				review := action.(clienttesting.CreateAction).GetObject().(*authorizationv1.SubjectAccessReview)
+				require.Equal(t, subject.Username, review.Spec.User)
+				require.Equal(t, subject.UID, review.Spec.UID)
+				require.Equal(t, subject.Groups, review.Spec.Groups)
+				require.Equal(t, authorizationv1.ExtraValue{"actor"}, review.Spec.Extra["example.org/actor"])
+				require.Equal(t, &attributes, review.Spec.ResourceAttributes)
+				return true, &authorizationv1.SubjectAccessReview{Status: test.status}, nil
+			})
+			allowed, err := ReviewSubjectAccess(t.Context(), client, subject, attributes)
+			require.Equal(t, test.wantError, err != nil)
+			require.Equal(t, test.want, allowed)
+		})
+	}
+	for _, subject := range []authenticationv1.UserInfo{{}, {Username: " "}, {Username: "system:anonymous"}} {
+		client := fake.NewClientset()
+		allowed, err := ReviewSubjectAccess(t.Context(), client, subject, attributes)
+		require.Error(t, err)
+		require.False(t, allowed)
+		require.Empty(t, client.Actions())
+	}
+	allowed, err := ReviewSubjectAccess(t.Context(), nil, subject, attributes)
 	require.Error(t, err)
 	require.False(t, allowed)
 }

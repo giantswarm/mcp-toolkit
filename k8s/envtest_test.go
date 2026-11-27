@@ -255,6 +255,34 @@ func TestEnvtestReviewAccess(t *testing.T) {
 	}
 }
 
+func TestEnvtestReviewSubjectAccess(t *testing.T) {
+	cluster := requireAPIServer(t)
+	admin, err := kubernetes.NewForConfig(cluster.admin)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name       string
+		attributes authorizationv1.ResourceAttributes
+		allowed    bool
+	}{
+		{name: readerName, attributes: configMapAccess(), allowed: true},
+		{name: nobodyName, attributes: configMapAccess()},
+		{name: readerName, attributes: widgetAccess(), allowed: true},
+		{name: nobodyName, attributes: widgetAccess()},
+		{name: readerName, attributes: authorizationv1.ResourceAttributes{Verb: "create", Resource: "secrets", Namespace: envtestNamespace}},
+	} {
+		t.Run(test.name+"/"+test.attributes.Resource, func(t *testing.T) {
+			subject := authenticationv1.UserInfo{Username: "system:serviceaccount:" + envtestNamespace + ":" + test.name, Groups: []string{"system:serviceaccounts", "system:authenticated"}}
+			allowed, err := ReviewSubjectAccess(t.Context(), admin, subject, test.attributes)
+			require.NoError(t, err)
+			require.Equal(t, test.allowed, allowed)
+		})
+	}
+	reader := callerClients(t, cluster, cluster.readerToken)
+	allowed, err := ReviewSubjectAccess(t.Context(), reader.Clientset, authenticationv1.UserInfo{Username: "system:admin", Groups: []string{"system:masters"}}, configMapAccess())
+	require.Error(t, err, "ordinary callers cannot ask named-subject reviews")
+	require.False(t, allowed)
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {

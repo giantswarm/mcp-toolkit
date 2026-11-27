@@ -27,3 +27,6 @@ Run checks independently with `GOWORK=off go test -race ./...`. The tests in
 binaries and runs them against a real kube-apiserver with RBAC. CI runs that
 target in `.github/workflows/k8s-envtest.yaml`. Source releases use
 `k8s/vX.Y.Z` tags through devctl's generated nested-module workflow.
+# Named-subject authorization
+
+`ReviewSubjectAccess` evaluates a subject obtained from authentication, including its UID, groups and extra attributes, using the reviewing client's permission to create Kubernetes SubjectAccessReviews. Never construct the subject from request fields. A missing client or subject, API error, evaluation error or contradictory decision fails closed. This differs from `ReviewAccess`, which evaluates the client's own identity.
