@@ -258,7 +258,7 @@ func TestResultLapsedWithoutExpiredOption(t *testing.T) {
 }
 
 func TestElicitLegacy(t *testing.T) {
-	sealer := &fakeSealer{}
+	sealer := &fakeSealer{sealError: errMissingClientID}
 	e := elicitor(t, sealer)
 	ids := map[string]bool{}
 	for range 2 {
@@ -282,7 +282,8 @@ func TestElicitWithoutURLCapability(t *testing.T) {
 		"legacy": legacy(t, mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{}}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			res, err := elicitor(t, &fakeSealer{}).Elicit(ctx, call(tool, nil), alice, signIn, nil)
+			sealer := &fakeSealer{sealError: errMissingClientID}
+			res, err := elicitor(t, sealer).Elicit(ctx, call(tool, nil), alice, signIn, nil)
 			require.NoError(t, err)
 			require.True(t, res.IsError)
 			require.False(t, res.NeedsInput())
@@ -293,6 +294,7 @@ func TestElicitWithoutURLCapability(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, signIn.URL, link.URI)
 			require.Empty(t, link.MIMEType)
+			require.Zero(t, sealer.sealIDs)
 		})
 	}
 }
@@ -389,9 +391,8 @@ func TestNewRefusesNilSealer(t *testing.T) {
 
 func TestNewRefusesNilOptions(t *testing.T) {
 	for name, option := range map[string]urlelicitation.Option{
-		"nil option":                  nil,
-		"nil expired predicate":       urlelicitation.WithExpired(nil),
-		"nil sealing error predicate": urlelicitation.WithSealErrorFallback(nil),
+		"nil option":            nil,
+		"nil expired predicate": urlelicitation.WithExpired(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			result, err := urlelicitation.New(&fakeSealer{}, option)
@@ -401,53 +402,27 @@ func TestNewRefusesNilOptions(t *testing.T) {
 	}
 }
 
-func TestElicitSealErrorFallback(t *testing.T) {
-	options := []urlelicitation.Option{urlelicitation.WithSealErrorFallback(func(err error) bool {
-		return errors.Is(err, errMissingClientID)
-	})}
-	for name, test := range map[string]struct {
-		sealError    error
-		options      []urlelicitation.Option
-		state        []byte
-		wantFallback bool
-	}{
-		"disabled":               {errMissingClientID, nil, nil, false},
-		"missing client":         {errMissingClientID, options, nil, true},
-		"empty state":            {errMissingClientID, options, []byte{}, true},
-		"wrapped missing client": {fmt.Errorf("adapter: %w", errMissingClientID), options, nil, true},
-		"key failure":            {errors.New("active key unavailable"), options, nil, false},
-		"missing principal":      {errors.New("authenticated user is required"), options, nil, false},
-		"continuation required":  {errMissingClientID, options, []byte("resume here"), false},
+func TestElicitModernSealingErrorFailsTheCall(t *testing.T) {
+	for name, sealError := range map[string]error{
+		"missing client":         errMissingClientID,
+		"wrapped missing client": fmt.Errorf("adapter: %w", errMissingClientID),
+		"key failure":            errors.New("active key unavailable"),
+		"missing principal":      errors.New("authenticated user is required"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			sealer := &fakeSealer{sealError: test.sealError}
-			result, err := elicitor(t, sealer, test.options...).Elicit(modern(t, urlCap), call(tool, nil), alice, signIn, test.state)
-			if !test.wantFallback {
-				require.ErrorIs(t, err, test.sealError)
+			sealer := &fakeSealer{sealError: sealError}
+			for _, state := range [][]byte{nil, []byte("resume here")} {
+				result, err := elicitor(t, sealer).Elicit(modern(t, urlCap), call(tool, nil), alice, signIn, state)
+				require.ErrorIs(t, err, sealError)
 				require.Nil(t, result)
-				return
 			}
-			require.NoError(t, err)
-			require.True(t, result.IsError)
-			require.False(t, result.NeedsInput())
-			require.Empty(t, result.RequestState)
-			require.Empty(t, result.InputRequests)
-			require.Len(t, result.Content, 2)
-			message, ok := mcp.AsTextContent(result.Content[0])
-			require.True(t, ok)
-			require.Contains(t, message.Text, signIn.URL)
-			link, ok := result.Content[1].(mcp.ResourceLink)
-			require.True(t, ok)
-			require.Equal(t, signIn.URL, link.URI)
 		})
 	}
 }
 
 func TestRelayPreservesSealingError(t *testing.T) {
 	sealer := &fakeSealer{sealError: errMissingClientID}
-	elicitor := elicitor(t, sealer, urlelicitation.WithSealErrorFallback(func(err error) bool {
-		return errors.Is(err, errMissingClientID)
-	}))
+	elicitor := elicitor(t, sealer)
 	result, err := elicitor.Relay(modern(t, urlCap), call(tool, argsA), alice, "downstream-tool", &urlelicitation.Relayed{
 		Key: "downstream-key", Message: signIn.Message, URL: signIn.URL, RequestState: "downstream-state",
 	})
@@ -455,12 +430,9 @@ func TestRelayPreservesSealingError(t *testing.T) {
 	require.Nil(t, result)
 }
 
-func TestResultDoesNotUseSealErrorFallback(t *testing.T) {
+func TestResultRefusesStateItCannotOpen(t *testing.T) {
 	sealer := &fakeSealer{}
-	elicitor := elicitor(t, sealer, urlelicitation.WithSealErrorFallback(func(err error) bool {
-		t.Fatal("a state verification error must not select a URL fallback")
-		return true
-	}))
+	elicitor := elicitor(t, sealer)
 	ctx := modern(t, urlCap)
 	request := call(tool, argsA)
 	result, err := elicitor.Elicit(ctx, request, alice, signIn, nil)

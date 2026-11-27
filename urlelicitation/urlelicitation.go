@@ -11,10 +11,8 @@
 //     (-32042) with a random elicitationId. No completion notification is
 //     sent (the specification makes it optional), so the caller retries when
 //     the person says they are done, and the retry runs as a new call.
-//   - Otherwise, or for selected sealing errors when no continuation is
-//     needed (see [WithSealErrorFallback]): a
-//     tool error with the message and the URL, and the URL as a
-//     resource_link from 2025-06-18.
+//   - Otherwise: a tool error with the message and the URL, and the URL as
+//     a resource_link from 2025-06-18.
 //
 // [Elicitor.Result] reads a 2026-07-28 retry. requestState is sealed by a
 // [Sealer], bound to the validated caller, to the originating request
@@ -29,7 +27,6 @@
 //	...
 //	elicitor, err := urlelicitation.New(sealer,
 //		urlelicitation.WithExpired(func(err error) bool { return errors.Is(err, requeststate.ErrExpired) }),
-//		urlelicitation.WithSealErrorFallback(func(err error) bool { return errors.Is(err, requeststate.ErrMissingClientID) }),
 //	)
 //	...
 //	user, ok := handler.UserInfoFromContext(ctx)
@@ -106,9 +103,8 @@ type Elicitor[U any] struct {
 }
 
 type config struct {
-	ttl               time.Duration
-	expired           func(error) bool
-	sealErrorFallback func(error) bool
+	ttl     time.Duration
+	expired func(error) bool
 }
 
 // Option configures an [Elicitor].
@@ -132,32 +128,21 @@ func WithExpired(expired func(error) bool) Option {
 	return func(c *config) { c.expired = expired }
 }
 
-// WithSealErrorFallback selects Seal errors for which Elicit may return a
-// tool error containing the URL instead of requesting input. This is local
-// presentation policy, not an MCP or OAuth error classification. It applies
-// only when state is empty, so no continuation is lost; Relay always needs
-// its continuation and propagates sealing errors. The predicate must exclude
-// missing authenticated user identity and operational failures. Without this
-// option all sealing errors are returned. A nil predicate is rejected by New.
-func WithSealErrorFallback(fallback func(error) bool) Option {
-	return func(c *config) { c.sealErrorFallback = fallback }
-}
-
 // New returns an Elicitor that seals with sealer.
 func New[U any](sealer Sealer[U], opts ...Option) (*Elicitor[U], error) {
 	if isNil(sealer) {
 		return nil, errors.New("urlelicitation: a sealer is required")
 	}
 	never := func(error) bool { return false }
-	e := &Elicitor[U]{sealer: sealer, config: config{ttl: DefaultTTL, expired: never, sealErrorFallback: never}}
+	e := &Elicitor[U]{sealer: sealer, config: config{ttl: DefaultTTL, expired: never}}
 	for _, opt := range opts {
 		if opt == nil {
 			return nil, errors.New("urlelicitation: an option must not be nil")
 		}
 		opt(&e.config)
 	}
-	if e.expired == nil || e.sealErrorFallback == nil {
-		return nil, errors.New("urlelicitation: error predicates must not be nil")
+	if e.expired == nil {
+		return nil, errors.New("urlelicitation: the expired predicate must not be nil")
 	}
 	return e, nil
 }
@@ -171,7 +156,9 @@ type sealedState struct {
 
 // Elicit answers the call with p, carrying state back on a 2026-07-28 retry.
 // See the package documentation for the answer per revision. A returned
-// error is meant to be returned by the tool handler as is.
+// error is meant to be returned by the tool handler as is. The tool must
+// authenticate who before calling Elicit; earlier revisions and callers
+// without URL mode support do not invoke the sealer.
 func (e *Elicitor[U]) Elicit(ctx context.Context, req mcp.CallToolRequest, who U, p URLParams, state []byte) (*mcp.CallToolResult, error) {
 	if p.Key == RelayKey {
 		return nil, fmt.Errorf("urlelicitation: the key %q is reserved for Relay", RelayKey)
@@ -200,9 +187,6 @@ func (e *Elicitor[U]) elicit(ctx context.Context, req mcp.CallToolRequest, who U
 		return nil, fmt.Errorf("urlelicitation: requestState: %w", err)
 	}
 	sealed, err := e.sealer.Seal(who, request, payload, e.ttl)
-	if err != nil && len(state) == 0 && e.sealErrorFallback(err) {
-		return fallback(ctx, p), nil
-	}
 	if err != nil {
 		return nil, fmt.Errorf("urlelicitation: seal requestState: %w", err)
 	}
@@ -284,11 +268,13 @@ func fallback(ctx context.Context, p URLParams) *mcp.CallToolResult {
 	return res
 }
 
-// RequestBinding names the originating request a value is sealed for: the
-// method, the tool and a digest of its arguments. encoding/json orders map
-// keys, so equal arguments bind alike. A server that seals requestState
-// without an [Elicitor] passes it as the request to its [Sealer], so a retry
-// of another tool or with other arguments does not open it.
+// RequestBinding returns an opaque identifier for a tools/call request,
+// combining the method, tool name and a digest of its arguments.
+// encoding/json orders map keys, so equal arguments bind alike. Request IDs,
+// input responses and requestState are excluded so retries bind alike.
+// This local identifier does not authenticate the caller or protect state.
+// Pass it as the request argument to [Sealer] when sealing and opening state
+// to prevent reuse with another tool or different arguments.
 func RequestBinding(req mcp.CallToolRequest) (string, error) {
 	args, err := json.Marshal(req.Params.Arguments)
 	if err != nil {
