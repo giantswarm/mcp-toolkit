@@ -470,3 +470,16 @@ func TestResultDoesNotUseSealErrorFallback(t *testing.T) {
 	requireInvalidParams(t, err, urlelicitation.ErrInvalidRequestState)
 	require.ErrorIs(t, err, errMissingClientID)
 }
+
+func TestRequestBinding(t *testing.T) {
+	bind := func(name string, args map[string]any) string {
+		binding, err := urlelicitation.RequestBinding(call(name, args))
+		require.NoError(t, err)
+		return binding
+	}
+
+	require.Equal(t, bind(tool, map[string]any{"a": 1, "b": "x"}), bind(tool, map[string]any{"b": "x", "a": 1}),
+		"argument order does not matter")
+	require.NotEqual(t, bind(tool, map[string]any{"a": 1}), bind(tool, map[string]any{"a": 2}))
+	require.NotEqual(t, bind(tool, nil), bind("other_tool", nil))
+}
